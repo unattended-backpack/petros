@@ -1,0 +1,16 @@
+# act configuration for testing GitHub Actions locally
+# See TESTING.md for full documentation
+
+# Use larger runner image to support Docker builds
+-P ubuntu-latest=catthehacker/ubuntu:full-latest
+-P self-hosted=catthehacker/ubuntu:full-latest
+
+# Mount Docker socket for Docker-in-Docker
+--container-daemon-socket /var/run/docker.sock
+
+# Use host network for local attic server access
+--network host
+
+# Bind mount the local secrets directory (read-only)
+# This expects secrets to be in .act-secrets/ in repo root
+--bind .act-secrets:/opt/github-runner/secrets:ro

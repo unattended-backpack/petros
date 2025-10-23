@@ -1,0 +1,64 @@
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# Environment and secrets
+.env
+.env.*
+.env.maintainer
+*.key
+*.pem
+!src/certs/*.pem
+!src/certs/*.sha256
+!src/attic/*
+*.p12
+credentials.json
+.secrets
+.act-secrets/
+
+# Development and editor files
+.vscode
+.idea
+*.swp
+*.swo
+*.swn
+*~
+.DS_Store
+Thumbs.db
+
+# Logs and temporary files
+*.log
+tmp/
+temp/
+.tmp
+.cache
+
+# Documentation (not needed in build)
+README.md
+CONTRIBUTING.md
+CODE_OF_CONDUCT.md
+SECURITY.md
+MANIFESTO.md
+TODO
+LICENSE
+licenses/
+Makefile
+
+# Build artifacts and caches
+target/
+*.tar.gz.tmp
+.home/
+
+# CI/CD (if present)
+.github/
+.gitlab-ci.yml
+.circleci/
+
+# Testing (keep test.sh since it's used in Dockerfile)
+*.test
+
+# Nix (keep needed files, exclude locks and results)
+result
+result-*
+flake.lock

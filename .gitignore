@@ -1,0 +1,7 @@
+/target
+**/*.rs.bk
+*.pdb
+.env
+.DS_Store
+.secrets
+.act-secrets/
