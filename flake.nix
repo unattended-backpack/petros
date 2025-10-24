@@ -85,16 +85,24 @@
       ln -s ${pkgs.rustup}/bin/rustup $out/bin/rustup
     '';
 
+    # Install gnupg without TPM support to avoid swtpm build failures.
+    gnupg_notpm = pkgs.gnupg.override {
+      withTpm2Tss = false;
+    };
+
   in {
     packages.${system} = {
       petros = pkgs.buildEnv {
         name = "petros-env";
         paths = with pkgs; [
-          bash coreutils git cacert curl
+          bash coreutils git cacert curl jq
           clang lld pkg-config
           openssl zlib lz4 snappy zstd
           attic-client
           attic-server
+          nodejs
+          docker-client
+          doctl
 
           # Vendored Rust 1.89.0 toolchain.
           rust_1_89.packages.stable.rustc
@@ -104,6 +112,9 @@
           sp1_cli
           sp1_tc
           rustup_min
+
+          # GnuPG without TPM support (avoids swtpm build failures).
+          gnupg_notpm
         ];
       };
 

@@ -139,7 +139,7 @@ module.exports = async ({ github, context, core }) => {
 
   // Provide a fallback changelog of full commits.
   } catch (error) {
-    console.log('Error generating changelog:', error.message);
+    console.log('Cannot generate changelog:', error.message);
     fullChanges =
       '**Full Changelog**: see commit history for details.';
   }

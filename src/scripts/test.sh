@@ -17,12 +17,37 @@ echo "[test] Testing binaries: $*"
 failed=0
 for binary in "$@"; do
     if command -v "$binary" >/dev/null 2>&1; then
+        # Temporarily disable exit-on-error to capture exit codes
+        set +e
+
+        # Try --version first (most common)
         version_output=$("$binary" --version 2>&1 | head -n1)
-        if [ $? -eq 0 ]; then
+        exit_code=$?
+
+        # Re-enable exit-on-error
+        set -e
+
+        # Accept 0 (success) or 141 (SIGPIPE from head -n1)
+        if [ $exit_code -eq 0 ] || [ $exit_code -eq 141 ]; then
             echo "[test]   ✓ $binary ($version_output)"
         else
-            echo "[test]   ✗ $binary --version failed"
-            failed=$((failed + 1))
+            # Temporarily disable exit-on-error again
+            set +e
+
+            # Fallback to 'version' subcommand (e.g., doctl, kubectl)
+            version_output=$("$binary" version 2>&1 | head -n1)
+            exit_code=$?
+
+            # Re-enable exit-on-error
+            set -e
+
+            # Accept 0 (success) or 141 (SIGPIPE from head -n1)
+            if [ $exit_code -eq 0 ] || [ $exit_code -eq 141 ]; then
+                echo "[test]   ✓ $binary ($version_output)"
+            else
+                echo "[test]   ✗ $binary version check failed (tried --version and version)"
+                failed=$((failed + 1))
+            fi
         fi
     else
         echo "[test]   ✗ $binary not found in PATH"

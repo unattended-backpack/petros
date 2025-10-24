@@ -149,8 +149,9 @@ FROM alpine:3.20@sha256:765942a4039992336de8dd5db680586e1a206607dd06170ff0a37267
 
 # OCI image labels for metadata and documentation.
 LABEL org.opencontainers.image.title="Petros"
+LABEL org.opencontainers.image.source=https://github.com/unattended-backpack/petros
 LABEL org.opencontainers.image.description=\
-"Supply-chain hardened building for Sigil."
+"Upon this rock, I will build my church. Petros is a supply-chain-hardened build image for Sigil."
 LABEL org.opencontainers.image.vendor="Unattended Backpack, Inc."
 LABEL org.opencontainers.image.licenses="LicenseRef-VPL WITH AGPL-3.0-only"
 LABEL org.opencontainers.image.base.name="docker.io/library/alpine:3.20"
@@ -191,8 +192,8 @@ USER 10001:10001
 
 # Test that all expected binaries are working.
 COPY src/scripts/test.sh /home/petros/test.sh
-RUN sh /home/petros/test.sh bash ls cat echo openssl curl \
-  pkg-config rustc cargo && \
+RUN sh /home/petros/test.sh bash ls cat echo openssl curl jq gpg \
+  pkg-config rustc cargo node docker doctl && \
   rm /home/petros/test.sh
 RUN which cargo-prove
 RUN cargo prove --version

@@ -115,7 +115,7 @@ TEST_PATH=$(nix build --no-link --print-out-paths --impure --expr \
         system = builtins.currentSystem;
         builder = "/bin/sh";
         args = ["-c" "echo test > $out"];
-    }' 2>/dev/null)
+    }')
 if [ -n "$TEST_PATH" ] && \
     attic push "remote:${ATTIC_CACHE}" "$TEST_PATH" >/dev/null 2>&1; then
     HAS_WRITE_PERMISSION=true

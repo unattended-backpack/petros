@@ -16,6 +16,11 @@ permissions:
 jobs:
   release:
     runs-on: [ self-hosted, actions-runner ]
+    container:
+      image: petros:latest
+      options: --group-add 960
+      volumes:
+        - /var/run/docker.sock:/var/run/docker.sock
     outputs:
       image-digest: ${{ steps.push-do.outputs.digest }}
       build-timestamp: ${{ steps.metadata.outputs.timestamp }}
@@ -92,28 +97,34 @@ jobs:
 
     - name: Build Docker image
       id: build
+      env:
+        DOCKER_BUILD_ARGS: ${{ env.DOCKER_BUILD_ARGS }}
       run: |
         echo "Building ${{ env.IMAGE_NAME }} image ..."
 
+        # Use .attic_admin_token if it exists, otherwise use attic_token
+        if [ -f .attic_admin_token ]; then
+          ATTIC_TOKEN_SOURCE=.attic_admin_token
+          echo "Using admin attic token"
+        else
+          ATTIC_TOKEN_SOURCE=attic_token
+          echo "Using public attic token"
+        fi
+
         # Compute the attic_token hash for cache busting.
-        ATTIC_TOKEN_HASH=$(sha256sum attic_token | cut -d' ' -f1)
+        ATTIC_TOKEN_HASH=$(sha256sum ${ATTIC_TOKEN_SOURCE} | cut -d' ' -f1)
 
         # Build the image.
         docker build \
+          ${DOCKER_BUILD_ARGS} \
           --build-arg ATTIC_SERVER_URL="${{ env.ATTIC_SERVER_URL }}" \
           --build-arg ATTIC_CACHE="${{ env.ATTIC_CACHE }}" \
           --build-arg ATTIC_PUBLIC_KEY="${{ env.ATTIC_PUBLIC_KEY }}" \
           --build-arg ATTIC_CACHE_BUST="${ATTIC_TOKEN_HASH}" \
-          --secret id=attic_token,src=attic_token \
+          --secret id=attic_token,src=${ATTIC_TOKEN_SOURCE} \
           -t ${{ env.IMAGE_NAME }}:${{ github.sha }} \
           .
         echo "build_success=true" >> $GITHUB_OUTPUT
-
-    - name: Install DigitalOcean doctl tool
-      if: steps.build.outputs.build_success == 'true'
-      uses: digitalocean/action-doctl@v2
-      with:
-        token: ${{ secrets.DO_TOKEN || 'placeholder' }}
 
     - name: Log into DigitalOcean Container Registry
       if: steps.build.outputs.build_success == 'true'
@@ -124,12 +135,14 @@ jobs:
     - name: Push to DigitalOcean Container Registry
       if: steps.build.outputs.build_success == 'true'
       id: push-do
+      timeout-minutes: 30
       run: |
-        docker push \
+        docker tag "${{ env.IMAGE_NAME }}:${{ github.sha }}" \
           "registry.digitalocean.com/${{ env.DO_REGISTRY_NAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
-        DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' \
-          "registry.digitalocean.com/${{ env.DO_REGISTRY_NAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }}" | \
-          cut -d'@' -f2)
+        PUSH_OUTPUT=$(docker push \
+          "registry.digitalocean.com/${{ env.DO_REGISTRY_NAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }}" 2>&1)
+        echo "$PUSH_OUTPUT"
+        DIGEST=$(echo "$PUSH_OUTPUT" | sed -n 's/.*digest: \([^ ]*\).*/\1/p' | head -1)
         echo "digest=${DIGEST}" >> $GITHUB_OUTPUT
 
     - name: Log into GitHub Container Registry
@@ -143,11 +156,13 @@ jobs:
     - name: Push to GitHub Container Registry
       if: steps.build.outputs.build_success == 'true'
       id: push-ghcr
+      timeout-minutes: 30
       run: |
-        docker push "ghcr.io/${{ github.repository }}:${{ github.sha }}"
-        DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' \
-          "ghcr.io/${{ github.repository }}:${{ github.sha }}" | \
-          cut -d'@' -f2)
+        docker tag "${{ env.IMAGE_NAME }}:${{ github.sha }}" \
+          "ghcr.io/${{ github.repository }}:${{ github.sha }}"
+        PUSH_OUTPUT=$(docker push "ghcr.io/${{ github.repository }}:${{ github.sha }}" 2>&1)
+        echo "$PUSH_OUTPUT"
+        DIGEST=$(echo "$PUSH_OUTPUT" | sed -n 's/.*digest: \([^ ]*\).*/\1/p' | head -1)
         echo "digest=${DIGEST}" >> $GITHUB_OUTPUT
 
     - name: Log in to Docker Hub
@@ -160,14 +175,16 @@ jobs:
     - name: Push to Docker Hub
       if: steps.build.outputs.build_success == 'true'
       id: push-dh
+      timeout-minutes: 30
       run: |
-        docker push "${{ env.DH_USERNAME }}/${{ env.DH_REPO }}:${{ github.sha }}"
-        DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' \
-          "${{ env.DH_USERNAME }}/${{ env.DH_REPO }}:${{ github.sha }}" | \
-          cut -d'@' -f2)
+        docker tag "${{ env.IMAGE_NAME }}:${{ github.sha }}" \
+          "${{ env.DH_USERNAME }}/${{ env.DH_REPO }}:${{ github.sha }}"
+        PUSH_OUTPUT=$(docker push "${{ env.DH_USERNAME }}/${{ env.DH_REPO }}:${{ github.sha }}" 2>&1)
+        echo "$PUSH_OUTPUT"
+        DIGEST=$(echo "$PUSH_OUTPUT" | sed -n 's/.*digest: \([^ ]*\).*/\1/p' | head -1)
         echo "digest=${DIGEST}" >> $GITHUB_OUTPUT
 
-    - name: Verify consistency across registries
+    - name: Record image metadata
       id: verify-digests
       if: steps.build.outputs.build_success == 'true'
       run: |
@@ -175,25 +192,32 @@ jobs:
         GHCR_DIGEST="${{ steps.push-ghcr.outputs.digest }}"
         DH_DIGEST="${{ steps.push-dh.outputs.digest }}"
 
-        echo "DO Digest: ${DO_DIGEST}"
-        echo "GHCR Digest: ${GHCR_DIGEST}"
-        echo "DH Digest: ${DH_DIGEST}"
+        echo "Registry Digests (may differ due to manifest format):"
+        echo "  DO:   ${DO_DIGEST}"
+        echo "  GHCR: ${GHCR_DIGEST}"
+        echo "  DH:   ${DH_DIGEST}"
+        echo ""
 
-        if [ "${DO_DIGEST}" != "${GHCR_DIGEST}" ] || \
-           [ "${GHCR_DIGEST}" != "${DH_DIGEST}" ]; then
-          echo "ERROR: Image digests don't match across registries!"
-          echo "This indicates the images are not identical."
-          echo "digest_match=false" >> $GITHUB_OUTPUT
+        # Verify all pushes succeeded
+        if [ -z "${DO_DIGEST}" ] || [ -z "${GHCR_DIGEST}" ] || [ -z "${DH_DIGEST}" ]; then
+          echo "ERROR: One or more pushes failed to return a digest!"
+          echo "image_match=false" >> $GITHUB_OUTPUT
           exit 1
         fi
 
-        echo "✅ All digests match! Images are consistent."
-        echo "Digest: ${DO_DIGEST}"
-        echo "digest_match=true" >> $GITHUB_OUTPUT
+        # Get local image ID for release notes
+        LOCAL_ID=$(docker inspect ${{ env.IMAGE_NAME }}:${{ github.sha }} --format='{{.Id}}')
+        echo "Local image ID: ${LOCAL_ID}"
+        echo ""
+
+        echo "✅ All pushes completed successfully."
+        echo "Digests will be GPG signed for verification."
+        echo "image_match=true" >> $GITHUB_OUTPUT
+        echo "image_id=${LOCAL_ID}" >> $GITHUB_OUTPUT
 
     # After registry consistency is verified, add the 'latest' tag.
     - name: Tag as latest after verification
-      if: steps.verify-digests.outputs.digest_match == 'true'
+      if: steps.verify-digests.outputs.image_match == 'true'
       run: |          
         # Tag and push 'latest' to each registry.
         # DO Registry
@@ -215,7 +239,7 @@ jobs:
 
     - name: Sign release artifacts with GPG
       id: gpg-sign
-      if: steps.verify-digests.outputs.digest_match == 'true'
+      if: steps.verify-digests.outputs.image_match == 'true'
       run: |
         echo "Setting up GPG signing ..."
 
@@ -322,8 +346,8 @@ jobs:
           // Get release notes and container push success.
           const releaseNotes = process.env.RELEASE_NOTES || '';
           const gpgPublicKey = process.env.GPG_PUBLIC_KEY || '';
-          const containerSuccess = (doDigest === ghcrDigest) &&
-            (ghcrDigest === dhDigest);
+          const containerSuccess = '${{ steps.verify-digests.outputs.image_match }}' === 'true';
+          const imageId = '${{ steps.verify-digests.outputs.image_id }}';
 
           // Prepare the release notes.
           const body = `## Release Notes
@@ -332,7 +356,7 @@ jobs:
 
           ## Container Images
 
-          Images have been pushed to the following container registries; some may be private:
+          Images have been pushed to the following container registries; some may be private.
           ${ghcrDigest ? `- GHCR: \`ghcr.io/${{ github.repository }}:${sha}\`` : '- GHCR: ❌'}
           ${dhDigest ? `- DHCR: \`${{ env.DH_USERNAME }}/${{ env.DH_REPO }}:${sha}\`` : '- DHCR: ❌'}
           ${doDigest ? `- DOCR: \`registry.digitalocean.com/${{ env.DO_REGISTRY_NAME }}/${{ env.IMAGE_NAME }}:${sha}\`` : '- DOCR: ❌'}
@@ -342,6 +366,8 @@ jobs:
           docker pull ${{ env.DH_USERNAME }}/${{ env.DH_REPO }}@${dhDigest}
           docker pull registry.digitalocean.com/${{ env.DO_REGISTRY_NAME }}/${{ env.IMAGE_NAME }}@${doDigest}
           \`\`\`
+
+          After pulling from a registry, verify the image ID matches \`${imageId}\` by running \`docker inspect ${{ env.IMAGE_NAME }} --format='{{.Id}}'\`.
 
           ## GPG Signature Verification
 
@@ -401,6 +427,7 @@ jobs:
         DO_ROLLBACK_SUCCESS=true
         if [ ! -z "${{ steps.push-do.outputs.digest }}" ]; then
           echo "Must rollback DO ..."
+          export DIGITALOCEAN_ACCESS_TOKEN="${{ env.DO_TOKEN }}"
           if doctl registry repository delete-manifest "${{ env.IMAGE_NAME }}" \
             "${{ steps.push-do.outputs.digest }}" --force; then
             echo "✅ Deleted ${{ steps.push-do.outputs.digest }} from DO"
@@ -584,32 +611,32 @@ jobs:
           const dhRollbackText =
             `- DHCR Rollback: ${dhRollback ? '✅' : '❌ manual intervention required.'}`;
 
-          await github.rest.issues.create({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            title: `⚠️ Release failed for ${shaShort}`,
-            body: `# Status
-
-            Attention @${{ github.actor }}, an automated release failed. This issue is generated to track the status of build success, partial releases, registry pushes and rollbacks. For full details please refer to [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions).
-
-            The automated release process attempts to build the project, push it to various container registries, ensure consistency between the container registries, and release the project.
-            1. If the build fails, nothing else happens.
-            2. If successful and consistent pushes to all container registries cannot be verified, a warning-laden partial release of the project is produced. The automated release process will attempt to restore container registry consistency by rolling back the mismatched state.
-            3. In the event that a registry push succeeded but its corresponding rollback failed, you will need to manually intervene to ensure consistent images between container registries.
-
-            ### Build Status
-            - ${buildSuccess ? '✅ The build succeeded.' : '❌ The build failed.'}
-            - ${releaseSuccess ? '⚠️ A partial release was made.' : '✅ No release was made.'}
-
-            ### Registry Pushes
-            - DOCR: ${doDigest ? `✅ \`${doDigest}\`` : '❌' }
-            - GHCR: ${ghcrDigest ? `✅ \`${ghcrDigest}\`` : '❌' }
-            - DHCR: ${dhDigest ? `✅ \`${dhDigest}\`` : '❌' }
-
-            ### Registry Rollbacks
-            ${doDigest ? doRollbackText : '' }
-            ${ghcrDigest ? ghcrRollbackText : '' }
-            ${dhDigest ? dhRollbackText : '' }
-            `,
-            labels: ['release-failure', 'needs-investigation']
-          });
+          // await github.rest.issues.create({
+          //   owner: context.repo.owner,
+          //   repo: context.repo.repo,
+          //   title: `⚠️ Release failed for ${shaShort}`,
+          //   body: `# Status
+          //
+          //   Attention @${{ github.actor }}, an automated release failed. This issue is generated to track the status of build success, partial releases, registry pushes and rollbacks. For full details please refer to [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions).
+          //
+          //   The automated release process attempts to build the project, push it to various container registries, ensure consistency between the container registries, and release the project.
+          //   1. If the build fails, nothing else happens.
+          //   2. If successful and consistent pushes to all container registries cannot be verified, a warning-laden partial release of the project is produced. The automated release process will attempt to restore container registry consistency by rolling back the mismatched state.
+          //   3. In the event that a registry push succeeded but its corresponding rollback failed, you will need to manually intervene to ensure consistent images between container registries.
+          //
+          //   ### Build Status
+          //   - ${buildSuccess ? '✅ The build succeeded.' : '❌ The build failed.'}
+          //   - ${releaseSuccess ? '⚠️ A partial release was made.' : '✅ No release was made.'}
+          //
+          //   ### Registry Pushes
+          //   - DOCR: ${doDigest ? `✅ \`${doDigest}\`` : '❌' }
+          //   - GHCR: ${ghcrDigest ? `✅ \`${ghcrDigest}\`` : '❌' }
+          //   - DHCR: ${dhDigest ? `✅ \`${dhDigest}\`` : '❌' }
+          //
+          //   ### Registry Rollbacks
+          //   ${doDigest ? doRollbackText : '' }
+          //   ${ghcrDigest ? ghcrRollbackText : '' }
+          //   ${dhDigest ? dhRollbackText : '' }
+          //   `,
+          //   labels: ['release-failure', 'needs-investigation']
+          // });
