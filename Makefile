@@ -14,6 +14,7 @@
 ATTIC_SERVER_URL ?=
 ATTIC_CACHE ?=
 ATTIC_PUBLIC_KEY ?=
+VENDOR_BASE_URL ?=
 ATTIC_TOKEN_FILE ?= attic_token
 DOCKER_BUILD_ARGS ?=
 IMAGE_NAME ?= petros
@@ -35,6 +36,10 @@ build:
 		echo "ERROR: ATTIC_PUBLIC_KEY not set (check .env.maintainer)" >&2; \
 		exit 1; \
 	fi
+	@if [ -z "$(VENDOR_BASE_URL)" ]; then \
+		echo "ERROR: VENDOR_BASE_URL not set (check .env.maintainer)" >&2; \
+		exit 1; \
+	fi
 	@if [ ! -f "$(ATTIC_TOKEN_FILE)" ]; then \
 		echo "ERROR: Token file '$(ATTIC_TOKEN_FILE)' not found" >&2; \
 		exit 1; \
@@ -48,6 +53,7 @@ build:
 		--build-arg ATTIC_SERVER_URL=$(ATTIC_SERVER_URL) \
 		--build-arg ATTIC_CACHE=$(ATTIC_CACHE) \
 		--build-arg ATTIC_PUBLIC_KEY=$(ATTIC_PUBLIC_KEY) \
+		--build-arg VENDOR_BASE_URL=$(VENDOR_BASE_URL) \
 		--build-arg ATTIC_CACHE_BUST=$(ATTIC_CACHE_BUST) \
 		--secret id=attic_token,src=$(ATTIC_TOKEN_SOURCE) \
 		-t $(IMAGE_NAME):$(IMAGE_TAG) \

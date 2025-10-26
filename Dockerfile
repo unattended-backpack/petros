@@ -22,6 +22,13 @@ RUN test -n "${ATTIC_PUBLIC_KEY}" || ( \
   && exit 1)
 ENV ATTIC_PUBLIC_KEY=${ATTIC_PUBLIC_KEY}
 
+# The `VENDOR_BASE_URL` specifies where to download vendored dependencies.
+ARG VENDOR_BASE_URL
+RUN test -n "${VENDOR_BASE_URL}" || ( \
+  echo "ERROR: VENDOR_BASE_URL build argument is required!" >&2 \
+  && exit 1)
+ENV VENDOR_BASE_URL=${VENDOR_BASE_URL}
+
 # Validate that our `attic_token` secret is mounted.
 RUN --mount=type=secret,id=attic_token \
   test -f /run/secrets/attic_token || ( \
@@ -32,9 +39,9 @@ RUN --mount=type=secret,id=attic_token \
 WORKDIR /build
 COPY flake.nix flake.nix
 COPY src/nixpkgs/ /nixpkgs/
-COPY src/sp1/ /build/src/sp1/
 COPY src/scripts/build.sh /build/src/scripts/build.sh
 COPY src/scripts/export.sh /build/src/scripts/export.sh
+COPY src/scripts/vendor.sh /build/src/scripts/vendor.sh
 ENV PATH="/usr/local/bin:/root/.nix-profile/bin:${PATH}"
 
 # Dynamically prepare `nix.conf` from build arguments.
@@ -60,8 +67,7 @@ ENV NIX_SSL_CERT_FILE=/nix/var/nix/ssl/ca-bundle.crt
 ENV SSL_CERT_FILE=/nix/var/nix/ssl/ca-bundle.crt
 ENV CURL_CA_BUNDLE=/nix/var/nix/ssl/ca-bundle.crt
 
-# Copy and verify vendored binaries with checksums.
-# Verify static curl.
+# Verify our included static curl.
 COPY src/curl/curl.sha256 /tmp/curl.sha256
 COPY src/curl/curl /tmp/curl
 RUN cd /tmp && sha256sum -c curl.sha256 || ( \
@@ -70,13 +76,16 @@ RUN cd /tmp && sha256sum -c curl.sha256 || ( \
   && mv /tmp/curl /usr/local/bin/curl \
   && rm /tmp/curl.sha256
 
-# Verify static Nix.
-COPY src/nix/nix.sha256 /tmp/nix.sha256
-COPY src/nix/nix /tmp/nix
-RUN cd /tmp && sha256sum -c nix.sha256 || ( \
-    echo "ERROR: nix binary checksum mismatch!" >&2 \
-    && exit 1) \
-  && mv /tmp/nix /usr/local/bin/nix \
+# Download vendored dependencies from self-hosted source.
+# This script verifies that checksums match.
+COPY src/nix/nix.sha256 /tmp/
+COPY src/attic/attic-store.tar.gz.sha256 /tmp/
+COPY src/sp1/ /tmp/
+RUN /build/src/scripts/vendor.sh
+
+# Install static Nix.
+RUN mv /tmp/nix /usr/local/bin/nix \
+  && chmod +x /usr/local/bin/nix \
   && rm /tmp/nix.sha256
 
 # Prepare the statically-vendored Nix with store and build users.
@@ -87,14 +96,9 @@ RUN mkdir -p /nix/store /nix/var/nix/profiles/per-user/root; \
 # Extract vendored attic binaries before using private substituters.
 # This solves the chicken-and-egg problem of needing attic to authenticate
 # against the private cache, but needing the cache to get attic.
-COPY src/attic/attic-store.tar.gz.sha256 /tmp/
-COPY src/attic/attic-store.tar.gz /tmp/
 COPY src/attic/attic-client.outpath /tmp/
 COPY src/attic/attic-server.outpath /tmp/
-RUN cd /tmp && sha256sum -c attic-store.tar.gz.sha256 || ( \
-    echo "ERROR: attic store tarball checksum mismatch!" >&2 \
-    && exit 1) \
-  && tar -C / -xzf attic-store.tar.gz \
+RUN tar -C / -xzf /tmp/attic-store.tar.gz \
   && ATTIC_CLIENT=$(cat /tmp/attic-client.outpath) \
   && ATTIC_SERVER=$(cat /tmp/attic-server.outpath) \
   && ln -s $ATTIC_CLIENT/bin/attic /usr/local/bin/attic \
@@ -108,23 +112,17 @@ RUN curl --fail --silent --show-error \
     echo "ERROR: ATTIC_SERVER_URL '${ATTIC_SERVER_URL}' is unreachable!" >&2 \
     && exit 1)
 
-# Verify checksums of vendored SP1 tarballs for integrity.
-RUN cd /build/src/sp1 && \
-  sha256sum -c cargo_prove_v5.2.1_linux_amd64.tar.gz.sha256 || ( \
-    echo "ERROR: cargo_prove tarball checksum mismatch!" >&2 \
-    && exit 1)
-RUN cd /build/src/sp1 && \
-  sha256sum -c rust-toolchain-x86_64-unknown-linux-gnu.tar.gz.sha256 || ( \
-    echo "ERROR: rust-toolchain tarball checksum mismatch!" >&2 \
-    && exit 1)
-
-# Extract vendored tarballs to directories for `flake.nix` PATH URLs.
+# Extract vendored SP1 tarballs to directories for `flake.nix` PATH URLs.
 RUN mkdir -p /build/src/sp1/sp1-cli && \
-  tar -xzf /build/src/sp1/cargo_prove_v5.2.1_linux_amd64.tar.gz \
-    -C /build/src/sp1/sp1-cli/
+  tar -xzf /tmp/cargo_prove_v5.2.1_linux_amd64.tar.gz \
+    -C /build/src/sp1/sp1-cli/ && \
+  rm /tmp/cargo_prove_v5.2.1_linux_amd64.tar.gz \
+     /tmp/cargo_prove_v5.2.1_linux_amd64.tar.gz.sha256
 RUN mkdir -p /build/src/sp1/sp1-tc && \
-  tar -xzf /build/src/sp1/rust-toolchain-x86_64-unknown-linux-gnu.tar.gz \
-    -C /build/src/sp1/sp1-tc/
+  tar -xzf /tmp/rust-toolchain-x86_64-unknown-linux-gnu.tar.gz \
+    -C /build/src/sp1/sp1-tc/ && \
+  rm /tmp/rust-toolchain-x86_64-unknown-linux-gnu.tar.gz \
+     /tmp/rust-toolchain-x86_64-unknown-linux-gnu.tar.gz.sha256
 
 # Register our vendored nixpkgs as the default
 RUN nix registry add nixpkgs path:/nixpkgs
