@@ -39,6 +39,8 @@ jobs:
     container:
       image: registry.digitalocean.com/sigil/petros:latest
       options: --user 1000:1000
+    env:
+      JAVA_HOME: /petros/lib/openjdk
     steps:
       - uses: actions/checkout@v4
       - uses: github/codeql-action/init@v3
