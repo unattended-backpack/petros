@@ -31,8 +31,7 @@ jobs:
         run: |
           DO_TOKEN=$(cat /opt/github-runner/secrets/do_token)
           echo "::add-mask::$DO_TOKEN"
-          export DIGITALOCEAN_ACCESS_TOKEN="$DO_TOKEN"
-          doctl registry login --expiry-seconds 600
+          echo "$DO_TOKEN" | docker login registry.digitalocean.com --username oauth2 --password-stdin
 
   analyze:
     needs: authenticate
