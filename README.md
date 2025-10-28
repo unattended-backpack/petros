@@ -22,6 +22,10 @@ The [`attic_token`](./attic_token) file distributed with this repository has rea
 
 If you opt to prepare your own attic server, you will need to bootstrap Petros with some available attic binaries. Instructions for bootstrapping are provided [here](./BOOTSTRAP.md).
 
+## Local Testing
+
+This repository is configured to support testing the release workflow locally using the `act` tool. There is a corresponding goal in the Makefile, and instructions for further management of secrets [here](./docs/WORKFLOW_TESTING.md).
+
 ## Regarding Vendored Nix Packages
 
 The Nix packages are vendored to keep us pinned to a specific version and to support overriding some default mirrors. At the time of creating this project, the GNU FTP mirrors [were being attacked](https://www.fsf.org/blogs/sysadmin/our-small-team-vs-millions-of-bots). We had to update the sources used for some dependencies to ensure that alternative mirrors were used. We encourage donating to the Free Software Foundation [here](https://my.fsf.org/donate).
