@@ -29,9 +29,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup CodeQL
+        run: echo "/opt/codeql" >> $GITHUB_PATH
+
       - uses: github/codeql-action/init@v3
-        with:
-          tools: /opt/codeql
 
       - uses: github/codeql-action/autobuild@v3
 
