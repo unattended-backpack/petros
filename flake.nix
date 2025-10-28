@@ -21,7 +21,13 @@
     system = "x86_64-linux";
     pkgs = import nixpkgs {
       inherit system;
-      overlays = [];
+      overlays = [
+        (final: prev: {
+          swtpm = prev.swtpm.overrideAttrs (old: {
+            doCheck = false;
+          });
+        })
+      ];
     };
 
     # Install the SP1 CLI.
@@ -90,6 +96,7 @@
       withTpm2Tss = false;
     };
 
+
   in {
     packages.${system} = {
       petros = pkgs.buildEnv {
@@ -104,6 +111,7 @@
           docker-client
           doctl
           go
+          jdk21_headless
 
           # Vendored Rust 1.89.0 toolchain.
           rust_1_89.packages.stable.rustc
