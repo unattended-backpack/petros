@@ -21,13 +21,7 @@
     system = "x86_64-linux";
     pkgs = import nixpkgs {
       inherit system;
-      overlays = [
-        (final: prev: {
-          swtpm = prev.swtpm.overrideAttrs (old: {
-            doCheck = false;
-          });
-        })
-      ];
+      overlays = [];
     };
 
     # Install the SP1 CLI.
@@ -110,8 +104,6 @@
           nodejs
           docker-client
           doctl
-          go
-          jdk21_headless
 
           # Vendored Rust 1.89.0 toolchain.
           rust_1_89.packages.stable.rustc

@@ -24,25 +24,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  authenticate:
-    runs-on: [ self-hosted, actions-runner ]
-    steps:
-      - name: Login to DigitalOcean Container Registry
-        run: |
-          DO_TOKEN=$(cat /opt/github-runner/secrets/do_token)
-          echo "::add-mask::$DO_TOKEN"
-          echo "$DO_TOKEN" | docker login registry.digitalocean.com --username oauth2 --password-stdin
-
   analyze:
-    needs: authenticate
     runs-on: [ self-hosted, actions-runner ]
-    container:
-      image: registry.digitalocean.com/sigil/petros:latest
-      options: --user 1000:1000
-    env:
-      JAVA_HOME: /petros/lib/openjdk
     steps:
       - uses: actions/checkout@v4
+
       - uses: github/codeql-action/init@v3
+        with:
+          tools: /opt/codeql
+
       - uses: github/codeql-action/autobuild@v3
+
       - uses: github/codeql-action/analyze@v3
