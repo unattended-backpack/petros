@@ -36,7 +36,9 @@ jobs:
   analyze:
     needs: authenticate
     runs-on: [ self-hosted, actions-runner ]
-    container: registry.digitalocean.com/sigil/petros:latest
+    container:
+      image: registry.digitalocean.com/sigil/petros:latest
+      options: --user 1000:1000
     steps:
       - uses: actions/checkout@v4
       - uses: github/codeql-action/init@v3

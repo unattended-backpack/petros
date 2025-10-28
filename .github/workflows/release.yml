@@ -32,7 +32,7 @@ jobs:
     runs-on: [ self-hosted, actions-runner ]
     container:
       image: registry.digitalocean.com/sigil/petros:latest
-      options: --group-add 960
+      options: --user 1000:1000 --group-add 960 --group-add 987
       volumes:
         - /var/run/docker.sock:/var/run/docker.sock
     outputs:
