@@ -33,7 +33,8 @@ jobs:
         run: echo "/opt/codeql" >> $GITHUB_PATH
 
       - uses: github/codeql-action/init@v3
-
-      - uses: github/codeql-action/autobuild@v3
+        with:
+          languages: c-cpp, csharp, java, javascript, python, ruby, rust
+          build-mode: none
 
       - uses: github/codeql-action/analyze@v3
