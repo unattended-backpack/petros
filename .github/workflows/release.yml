@@ -13,12 +13,26 @@ permissions:
   actions: read
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  authenticate:
+    runs-on: [ self-hosted, actions-runner ]
+    steps:
+      - name: Login to DigitalOcean Container Registry
+        run: |
+          DO_TOKEN=$(cat /opt/github-runner/secrets/do_token)
+          echo "::add-mask::$DO_TOKEN"
+          echo "$DO_TOKEN" | docker login registry.digitalocean.com --username oauth2 --password-stdin
+
   release:
+    needs: authenticate
     runs-on: [ self-hosted, actions-runner ]
     container:
-      image: petros:latest
-      options: --group-add 960
+      image: registry.digitalocean.com/sigil/petros:latest
+      options: --user 1000:1000 --group-add 960 --group-add 987
       volumes:
         - /var/run/docker.sock:/var/run/docker.sock
     outputs:

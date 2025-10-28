@@ -1,12 +1,11 @@
-# act configuration for testing GitHub Actions locally
-# See TESTING.md for full documentation
+# This is an act configuration to test GitHub Actions locally.
+# See docs/WORKFLOW_TESTING.md for more details.
 
-# Use local Petros image for self-hosted builds
--P ubuntu-latest=catthehacker/ubuntu:full-latest
+# Use local Petros image for self-hosted builds.
 -P self-hosted=petros:latest
 
-# Mount Docker socket for Docker-in-Docker
+# Mount Docker socket for Docker-in-Docker.
 --container-daemon-socket /var/run/docker.sock
 
-# Use host network for local attic server access
+# Use host network for local attic server access.
 --network host
