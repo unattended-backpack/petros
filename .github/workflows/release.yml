@@ -53,6 +53,9 @@ jobs:
     - name: Load secrets and configuration
       id: load-config
       run: |
+        # Ensure we're in the repository root
+        cd $GITHUB_WORKSPACE
+
         # Load GitHub tokens from runner-local files
         CI_GH_PAT=$(cat /opt/github-runner/secrets/ci_gh_pat)
         CI_GH_CLASSIC_PAT=$(cat /opt/github-runner/secrets/ci_gh_classic_pat)
