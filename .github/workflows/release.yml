@@ -56,18 +56,6 @@ jobs:
     - name: Load secrets and configuration
       id: load-config
       run: |
-        # Debug: Show where we are
-        echo "Current directory: $(pwd)"
-        echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
-        echo "Files in current directory:"
-        ls -la
-
-        # Explicitly change to repository root
-        cd $GITHUB_WORKSPACE
-        echo "After cd, current directory: $(pwd)"
-        echo "Files in GITHUB_WORKSPACE:"
-        ls -la
-
         # Load GitHub tokens from runner-local files
         CI_GH_PAT=$(cat /opt/github-runner/secrets/ci_gh_pat)
         CI_GH_CLASSIC_PAT=$(cat /opt/github-runner/secrets/ci_gh_classic_pat)
@@ -95,9 +83,6 @@ jobs:
         echo "GPG_PUBLIC_KEY=$GPG_PUBLIC_KEY" >> $GITHUB_ENV
 
         # Load public config from repository
-        echo "About to source .env.maintainer"
-        echo "File exists check: $(test -f .env.maintainer && echo 'YES' || echo 'NO')"
-        echo "File readable check: $(test -r .env.maintainer && echo 'YES' || echo 'NO')"
         . "$GITHUB_WORKSPACE/.env.maintainer"
 
         # Export to environment for subsequent steps
