@@ -56,6 +56,18 @@ jobs:
     - name: Load secrets and configuration
       id: load-config
       run: |
+        # Debug: Show where we are
+        echo "Current directory: $(pwd)"
+        echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
+        echo "Files in current directory:"
+        ls -la
+
+        # Explicitly change to repository root
+        cd $GITHUB_WORKSPACE
+        echo "After cd, current directory: $(pwd)"
+        echo "Files in GITHUB_WORKSPACE:"
+        ls -la
+
         # Load GitHub tokens from runner-local files
         CI_GH_PAT=$(cat /opt/github-runner/secrets/ci_gh_pat)
         CI_GH_CLASSIC_PAT=$(cat /opt/github-runner/secrets/ci_gh_classic_pat)
