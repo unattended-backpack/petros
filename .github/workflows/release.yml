@@ -36,6 +36,9 @@ jobs:
       volumes:
         - /var/run/docker.sock:/var/run/docker.sock
         - /opt/github-runner/secrets:/opt/github-runner/secrets:ro
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}
     outputs:
       image-digest: ${{ steps.push-do.outputs.digest }}
       build-timestamp: ${{ steps.metadata.outputs.timestamp }}
@@ -53,9 +56,6 @@ jobs:
     - name: Load secrets and configuration
       id: load-config
       run: |
-        # Ensure we're in the repository root
-        cd $GITHUB_WORKSPACE
-
         # Load GitHub tokens from runner-local files
         CI_GH_PAT=$(cat /opt/github-runner/secrets/ci_gh_pat)
         CI_GH_CLASSIC_PAT=$(cat /opt/github-runner/secrets/ci_gh_classic_pat)
