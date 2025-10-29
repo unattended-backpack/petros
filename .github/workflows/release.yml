@@ -83,7 +83,7 @@ jobs:
         echo "GPG_PUBLIC_KEY=$GPG_PUBLIC_KEY" >> $GITHUB_ENV
 
         # Load public config from repository
-        source .env.maintainer
+        . .env.maintainer
 
         # Export to environment for subsequent steps
         echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
@@ -94,7 +94,7 @@ jobs:
         echo "VENDOR_BASE_URL=$VENDOR_BASE_URL" >> $GITHUB_ENV
 
         # Load registry configuration
-        source /opt/github-runner/secrets/registry.env
+        . /opt/github-runner/secrets/registry.env
 
         # Export to environment for subsequent steps
         echo "DO_REGISTRY_NAME=$DO_REGISTRY_NAME" >> $GITHUB_ENV
