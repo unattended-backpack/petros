@@ -149,8 +149,7 @@ jobs:
     - name: Log into DigitalOcean Container Registry
       if: steps.build.outputs.build_success == 'true'
       run: |
-        export DIGITALOCEAN_ACCESS_TOKEN="${{ env.DO_TOKEN }}"
-        doctl registry login --expiry-seconds 600
+        echo "${{ env.DO_TOKEN }}" | docker login registry.digitalocean.com --username oauth2 --password-stdin
 
     - name: Push to DigitalOcean Container Registry
       if: steps.build.outputs.build_success == 'true'
@@ -447,12 +446,18 @@ jobs:
         DO_ROLLBACK_SUCCESS=true
         if [ ! -z "${{ steps.push-do.outputs.digest }}" ]; then
           echo "Must rollback DO ..."
-          export DIGITALOCEAN_ACCESS_TOKEN="${{ env.DO_TOKEN }}"
-          if doctl registry repository delete-manifest "${{ env.IMAGE_NAME }}" \
-            "${{ steps.push-do.outputs.digest }}" --force; then
+          # Use DO API directly to delete manifest by digest
+          RESPONSE=$(curl -X DELETE \
+            -H "Authorization: Bearer ${{ env.DO_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            "https://api.digitalocean.com/v2/registry/${{ env.DO_REGISTRY_NAME }}/repositories/${{ env.IMAGE_NAME }}/digests/${{ steps.push-do.outputs.digest }}" \
+            -w "\n%{http_code}" -s)
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n 1)
+          if [ "$HTTP_CODE" = "204" ] || [ "$HTTP_CODE" = "200" ]; then
             echo "✅ Deleted ${{ steps.push-do.outputs.digest }} from DO"
           else
-            echo "❌ Failed to delete from DO"
+            echo "❌ Failed to delete from DO (HTTP $HTTP_CODE)"
             DO_ROLLBACK_SUCCESS=false
           fi
         fi
