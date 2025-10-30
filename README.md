@@ -76,6 +76,69 @@ The [`attic_token`](./attic_token) file distributed with this repository has rea
 
 If you opt to prepare your own attic server, you will need to bootstrap Petros with some available attic binaries. Instructions for bootstrapping are provided [here](./docs/BOOTSTRAP.md).
 
+## Verifying Release Artifacts
+
+All releases include GPG-signed artifacts for verification. Each release contains:
+
+- `image-digests.txt` - A human-readable list of container image digests.
+- `image-digests.txt.asc` - A GPG signature for the digest list.
+- `ghcr-manifest.json` / `ghcr-manifest.json.asc` - A GitHub Container Registry OCI manifest and signature.
+- `dh-manifest.json` / `dh-manifest.json.asc` - A Docker Hub OCI manifest and signature.
+- `do-manifest.json` / `do-manifest.json.asc` - A DigitalOcean Container Registry OCI manifest and signature.
+
+### Quick Verification
+
+Download the artifacts and verify signatures:
+
+```bash
+# Import the GPG public key (base64-encoded in release notes).
+echo "<GPG_PUBLIC_KEY>" | base64 -d | gpg --import
+
+# Verify digest list.
+gpg --verify image-digests.txt.asc image-digests.txt
+
+# Verify image manifests.
+gpg --verify ghcr-manifest.json.asc ghcr-manifest.json
+gpg --verify dh-manifest.json.asc dh-manifest.json
+gpg --verify do-manifest.json.asc do-manifest.json
+```
+
+### Manifest Verification
+
+The manifest files contain the complete OCI image structure (layers, config, metadata). To verify that a registry hasn't tampered with an image:
+
+```bash
+# Pull the manifest from the registry.
+docker manifest inspect ghcr.io/unattended-backpack/petros@sha256:... \
+  --verbose > registry-manifest.json
+
+# Compare to the signed manifest.
+diff ghcr-manifest.json registry-manifest.json
+
+# If identical, the registry image matches the signed manifest.
+```
+
+This provides cryptographic proof that the image structure (all layers and configuration) matches what was signed at release time.
+
+### Cosign Verification (Optional)
+
+Images are also signed with [cosign](https://github.com/sigstore/cosign) using GitHub Actions OIDC for keyless signing. This provides automated verification and build provenance.
+
+To verify with cosign:
+```bash
+# Verify image signature (proves it was built by GitHub Actions workflow)
+cosign verify ghcr.io/unattended-backpack/petros@sha256:... \
+  --certificate-identity-regexp='^https://github.com/unattended-backpack/.+' \
+  --certificate-oidc-issuer=https://token.actions.githubusercontent.com
+```
+
+Cosign verification provides:
+- Automated verification (no manual GPG key management).
+- Build provenance (proves image was built by the GitHub Actions workflow).
+- Registry-native signatures (stored alongside images).
+
+**Note**: Cosign depends on external infrastructure (GitHub OIDC, Rekor). For maximum trust independence, rely on the GPG-signed manifests as your ultimate root of trust.
+
 ## Local Testing
 
 This repository is configured to support testing the release workflow locally using the `act` tool. There is a corresponding goal in the Makefile, and instructions for further management of secrets [here](./docs/WORKFLOW_TESTING.md). This local testing file also shows how to configure the required secrets for building.

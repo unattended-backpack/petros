@@ -90,6 +90,98 @@ else
   exit 1
 fi
 
+# Sign image manifests from registries
+echo ""
+echo "Fetching and signing image manifests ..."
+
+# Sign GHCR manifest
+echo "Fetching GHCR manifest ..."
+if docker manifest inspect \
+    "ghcr.io/$GITHUB_REPOSITORY@$GHCR_DIGEST" \
+    --verbose > release-artifacts/ghcr-manifest.json 2>/dev/null; then
+
+  echo "Signing ghcr-manifest.json ..."
+  if gpg --batch --yes --pinentry-mode loopback \
+      --passphrase "$GPG_PASSPHRASE" \
+      --armor --detach-sign \
+      --local-user "$KEY_ID" \
+      release-artifacts/ghcr-manifest.json 2>/dev/null; then
+    echo "✅ Signed ghcr-manifest.json"
+  else
+    echo "❌ Failed to sign ghcr-manifest.json"
+    exit 1
+  fi
+else
+  echo "❌ Failed to fetch GHCR manifest"
+  exit 1
+fi
+
+# Sign Docker Hub manifest
+echo "Fetching Docker Hub manifest ..."
+if docker manifest inspect \
+    "$DH_USERNAME/$IMAGE_NAME@$DH_DIGEST" \
+    --verbose > release-artifacts/dh-manifest.json 2>/dev/null; then
+
+  echo "Signing dh-manifest.json ..."
+  if gpg --batch --yes --pinentry-mode loopback \
+      --passphrase "$GPG_PASSPHRASE" \
+      --armor --detach-sign \
+      --local-user "$KEY_ID" \
+      release-artifacts/dh-manifest.json 2>/dev/null; then
+    echo "✅ Signed dh-manifest.json"
+  else
+    echo "❌ Failed to sign dh-manifest.json"
+    exit 1
+  fi
+else
+  echo "❌ Failed to fetch Docker Hub manifest"
+  exit 1
+fi
+
+# Sign DigitalOcean manifest
+echo "Fetching DigitalOcean manifest ..."
+if docker manifest inspect \
+    "registry.digitalocean.com/$DO_REGISTRY_NAME/$IMAGE_NAME@$DO_DIGEST" \
+    --verbose > release-artifacts/do-manifest.json 2>/dev/null; then
+
+  echo "Signing do-manifest.json ..."
+  if gpg --batch --yes --pinentry-mode loopback \
+      --passphrase "$GPG_PASSPHRASE" \
+      --armor --detach-sign \
+      --local-user "$KEY_ID" \
+      release-artifacts/do-manifest.json 2>/dev/null; then
+    echo "✅ Signed do-manifest.json"
+  else
+    echo "❌ Failed to sign do-manifest.json"
+    exit 1
+  fi
+else
+  echo "❌ Failed to fetch DigitalOcean manifest"
+  exit 1
+fi
+
+# Verify all manifest signatures
+echo ""
+echo "Verifying manifest signatures ..."
+ALL_VERIFIED=true
+
+for manifest in ghcr dh do; do
+  if gpg --verify \
+      "release-artifacts/${manifest}-manifest.json.asc" \
+      "release-artifacts/${manifest}-manifest.json" 2>&1 | \
+      grep -q "Good signature"; then
+    echo "✅ ${manifest}-manifest.json signature verified"
+  else
+    echo "❌ ${manifest}-manifest.json signature verification failed"
+    ALL_VERIFIED=false
+  fi
+done
+
+if [ "$ALL_VERIFIED" = false ]; then
+  echo "❌ Some manifest signatures failed verification"
+  exit 1
+fi
+
 # List artifacts
 echo ""
 echo "Signed artifacts:"

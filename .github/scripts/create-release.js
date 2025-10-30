@@ -60,14 +60,53 @@ After pulling from a registry, verify the image ID matches \`${imageId}\` by run
 
 ## GPG Signature Verification
 
-The image digest manifest is signed with GPG. Download \`image-digests.txt\` and \`image-digests.txt.asc\` from the release assets below. To verify authenticity copy this public key \`${gpgPublicKey}\` into a \`public.asc\` file and verify the signature.
+All release artifacts are signed with GPG, including:
+- \`image-digests.txt\` - A human-readable digest list.
+- \`ghcr-manifest.json\` - The complete GHCR image manifest.
+- \`dh-manifest.json\` - The complete Docker Hub image manifest.
+- \`do-manifest.json\` - The complete DigitalOcean image manifest.
+
+Download the artifacts and their \`.asc\` signature files from the release assets below. To verify authenticity, copy this public key \`${gpgPublicKey}\` into a \`public.asc\` file and verify the signatures:
+
 \`\`\`bash
-# Import GPG public key
+# Import GPG public key.
 cat public.asc | base64 -d | gpg --import
+
+# Verify digest list.
 gpg --verify image-digests.txt.asc image-digests.txt
+
+# Verify image manifests.
+gpg --verify ghcr-manifest.json.asc ghcr-manifest.json
+gpg --verify dh-manifest.json.asc dh-manifest.json
+gpg --verify do-manifest.json.asc do-manifest.json
 \`\`\`
 
-A valid signature confirms the digest manifest was signed by the maintainer.
+Valid signatures confirm the artifacts were signed by the maintainer. The manifest signatures provide cryptographic proof of the complete image structure.
+
+## Cosign Verification (Optional)
+
+Images are also signed with [cosign](https://github.com/sigstore/cosign) using GitHub Actions OIDC for automated verification and build provenance:
+
+\`\`\`bash
+# Verify GHCR image
+cosign verify ghcr.io/${repository}@${ghcrDigest} \\
+  --certificate-identity-regexp='^https://github.com/${repository.split('/')[0]}/.+' \\
+  --certificate-oidc-issuer=https://token.actions.githubusercontent.com
+
+# Verify Docker Hub image
+cosign verify ${dhUsername}/${imageName}@${dhDigest} \\
+  --certificate-identity-regexp='^https://github.com/${repository.split('/')[0]}/.+' \\
+  --certificate-oidc-issuer=https://token.actions.githubusercontent.com
+
+# Verify DigitalOcean image
+cosign verify registry.digitalocean.com/${doRegistryName}/${imageName}@${doDigest} \\
+  --certificate-identity-regexp='^https://github.com/${repository.split('/')[0]}/.+' \\
+  --certificate-oidc-issuer=https://token.actions.githubusercontent.com
+\`\`\`
+
+Cosign provides automated verification without manual key management. Signatures prove the images were built by this repository's GitHub Actions workflow and are stored in the [Rekor transparency log](https://search.sigstore.dev/).
+
+**Note**: Cosign depends on external infrastructure (GitHub OIDC, Rekor). For maximum trust independence, rely on the GPG-signed manifests as your ultimate root of trust.
 `;
 
   // Create the release

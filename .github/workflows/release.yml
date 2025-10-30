@@ -288,9 +288,37 @@ jobs:
         docker push "${DH_IMAGE}:latest"
         echo "✅ Successfully tagged all registries with 'latest'"
 
+    - name: Sign images with cosign
+      id: cosign-sign
+      if: steps.verify-digests.outputs.image_match == 'true'
+      env:
+        COSIGN_EXPERIMENTAL: "true"
+      run: |
+        echo "Signing container images with cosign ..."
+
+        # Sign GHCR
+        echo "Signing GHCR image ..."
+        cosign sign --yes \
+          "ghcr.io/${{ github.repository }}@${{ steps.push-ghcr.outputs.digest }}"
+        echo "✅ Signed GHCR image"
+
+        # Sign Docker Hub
+        echo "Signing Docker Hub image ..."
+        cosign sign --yes \
+          "${{ env.DH_USERNAME }}/${{ env.IMAGE_NAME }}@${{ steps.push-dh.outputs.digest }}"
+        echo "✅ Signed Docker Hub image"
+
+        # Sign DigitalOcean
+        echo "Signing DigitalOcean image ..."
+        cosign sign --yes \
+          "registry.digitalocean.com/${{ env.DO_REGISTRY_NAME }}/${{ env.IMAGE_NAME }}@${{ steps.push-do.outputs.digest }}"
+        echo "✅ Signed DigitalOcean image"
+
+        echo "cosign_success=true" >> $GITHUB_OUTPUT
+
     - name: Sign release artifacts with GPG
       id: gpg-sign
-      if: steps.verify-digests.outputs.image_match == 'true'
+      if: steps.cosign-sign.outputs.cosign_success == 'true'
       env:
         BUILD_TIMESTAMP: ${{ steps.metadata.outputs.timestamp }}
         BUILD_SHA_SHORT: ${{ steps.metadata.outputs.sha_short }}
