@@ -13,7 +13,6 @@
 #   - DH_TOKEN: Docker Hub token
 #   - DH_USERNAME: Docker Hub username
 #   - DO_REGISTRY_NAME: DigitalOcean registry name
-#   - DH_REPOSITORY: Docker Hub repository name
 #   - IMAGE_NAME: Image name
 #   - GITHUB_SHA: Git commit SHA
 #   - GITHUB_REPOSITORY: Repository name (owner/repo)
@@ -137,7 +136,7 @@ if [ -n "$DH_DIGEST" ]; then
   if [ -n "$TOKEN" ]; then
     RESPONSE=$(curl -X DELETE \
       -H "Authorization: Bearer $TOKEN" \
-      "https://hub.docker.com/v2/repositories/$DH_USERNAME/$DH_REPOSITORY/tags/$GITHUB_SHA/" \
+      "https://hub.docker.com/v2/repositories/$DH_USERNAME/$IMAGE_NAME/tags/$GITHUB_SHA/" \
       -w "\n%{http_code}" -s)
 
     HTTP_CODE=$(echo "$RESPONSE" | tail -n 1)
