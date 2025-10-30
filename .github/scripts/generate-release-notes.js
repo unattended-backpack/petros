@@ -79,10 +79,11 @@ module.exports = async ({ github, context, core }) => {
     const tags = await github.rest.repos.listTags({
       owner: context.repo.owner,
       repo: context.repo.repo,
-      per_page: 2
+      per_page: 1
     });
-    const previousTag = tags.data.length > 1 ? tags.data[1].name : '';
-    console.log(`Previous tag: ${previousTag || 'none'}`); 
+    const previousTag = tags.data.length > 0 ? tags.data[0].name : '';
+    console.log(`Previous tag: ${previousTag || 'none'}`);
+    console.log(`Current SHA: ${context.sha}`); 
     const compareUrl =
       `https://github.com/${context.repo.owner}/${context.repo.repo}/` +
       `compare/${previousTag}...${context.sha}`;
