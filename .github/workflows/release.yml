@@ -20,8 +20,19 @@ concurrency:
 jobs:
   authenticate:
     runs-on: [ self-hosted, actions-runner ]
+    outputs:
+      build-image: ${{ steps.config.outputs.build-image }}
     steps:
+      - name: Find build image
+        id: config
+        run: |
+          . /opt/github-runner/secrets/registry.env
+          BUILD_IMAGE="${BUILD_IMAGE:-petros:latest}"
+          echo "build-image=$BUILD_IMAGE" >> $GITHUB_OUTPUT
+          echo "Using build image: $BUILD_IMAGE"
+
       - name: Login to DigitalOcean Container Registry
+        if: startsWith(steps.config.outputs.build-image, 'registry.digitalocean.com')
         run: |
           DO_TOKEN=$(cat /opt/github-runner/secrets/do_token)
           echo "::add-mask::$DO_TOKEN"
@@ -31,7 +42,7 @@ jobs:
     needs: authenticate
     runs-on: [ self-hosted, actions-runner ]
     container:
-      image: registry.digitalocean.com/sigil/petros:latest
+      image: ${{ needs.authenticate.outputs.build-image }}
       options: --user 1000:1000 --group-add 960 --group-add 987
       volumes:
         - /var/run/docker.sock:/var/run/docker.sock
@@ -87,7 +98,6 @@ jobs:
 
         # Export to environment for subsequent steps
         echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
-        echo "DH_REPO=$DH_REPO" >> $GITHUB_ENV
         echo "ATTIC_SERVER_URL=$ATTIC_SERVER_URL" >> $GITHUB_ENV
         echo "ATTIC_CACHE=$ATTIC_CACHE" >> $GITHUB_ENV
         echo "ATTIC_PUBLIC_KEY=$ATTIC_PUBLIC_KEY" >> $GITHUB_ENV
@@ -99,6 +109,7 @@ jobs:
         # Export to environment for subsequent steps
         echo "DO_REGISTRY_NAME=$DO_REGISTRY_NAME" >> $GITHUB_ENV
         echo "DH_USERNAME=$DH_USERNAME" >> $GITHUB_ENV
+        echo "DH_REPOSITORY=$DH_REPOSITORY" >> $GITHUB_ENV
 
     - name: Generate release notes
       id: release-notes
@@ -197,8 +208,8 @@ jobs:
       timeout-minutes: 30
       run: |
         docker tag "${{ env.IMAGE_NAME }}:${{ github.sha }}" \
-          "${{ env.DH_USERNAME }}/${{ env.DH_REPO }}:${{ github.sha }}"
-        PUSH_OUTPUT=$(docker push "${{ env.DH_USERNAME }}/${{ env.DH_REPO }}:${{ github.sha }}" 2>&1)
+          "${{ env.DH_USERNAME }}/${{ env.DH_REPOSITORY }}:${{ github.sha }}"
+        PUSH_OUTPUT=$(docker push "${{ env.DH_USERNAME }}/${{ env.DH_REPOSITORY }}:${{ github.sha }}" 2>&1)
         echo "$PUSH_OUTPUT"
         DIGEST=$(echo "$PUSH_OUTPUT" | sed -n 's/.*digest: \([^ ]*\).*/\1/p' | head -1)
         echo "digest=${DIGEST}" >> $GITHUB_OUTPUT
@@ -251,9 +262,9 @@ jobs:
         docker push "ghcr.io/${{ github.repository }}:latest"
         
         # Docker Hub
-        docker tag "${{ env.DH_USERNAME }}/${{ env.DH_REPO }}:${{ github.sha }}" \
-          "${{ env.DH_USERNAME }}/${{ env.DH_REPO }}:latest"
-        docker push "${{ env.DH_USERNAME }}/${{ env.DH_REPO }}:latest"
+        docker tag "${{ env.DH_USERNAME }}/${{ env.DH_REPOSITORY }}:${{ github.sha }}" \
+          "${{ env.DH_USERNAME }}/${{ env.DH_REPOSITORY }}:latest"
+        docker push "${{ env.DH_USERNAME }}/${{ env.DH_REPOSITORY }}:latest"
         echo "✅ Successfully tagged all registries with 'latest'"
 
     - name: Sign release artifacts with GPG
@@ -297,7 +308,7 @@ jobs:
 
         Registry URLs:
         - ghcr.io/${{ github.repository }}@${{ steps.push-ghcr.outputs.digest }}
-        - ${{ env.DH_USERNAME }}/${{ env.DH_REPO }}@${{ steps.push-dh.outputs.digest }}
+        - ${{ env.DH_USERNAME }}/${{ env.DH_REPOSITORY }}@${{ steps.push-dh.outputs.digest }}
         - registry.digitalocean.com/${{ env.DO_REGISTRY_NAME }}/${{ env.IMAGE_NAME }}@${{ steps.push-do.outputs.digest }}
         EOF
 
@@ -377,12 +388,12 @@ jobs:
 
           Images have been pushed to the following container registries; some may be private.
           ${ghcrDigest ? `- GHCR: \`ghcr.io/${{ github.repository }}:${sha}\`` : '- GHCR: ❌'}
-          ${dhDigest ? `- DHCR: \`${{ env.DH_USERNAME }}/${{ env.DH_REPO }}:${sha}\`` : '- DHCR: ❌'}
+          ${dhDigest ? `- DHCR: \`${{ env.DH_USERNAME }}/${{ env.DH_REPOSITORY }}:${sha}\`` : '- DHCR: ❌'}
           ${doDigest ? `- DOCR: \`registry.digitalocean.com/${{ env.DO_REGISTRY_NAME }}/${{ env.IMAGE_NAME }}:${sha}\`` : '- DOCR: ❌'}
 
           \`\`\`bash
           docker pull ghcr.io/${{ github.repository }}@${ghcrDigest}
-          docker pull ${{ env.DH_USERNAME }}/${{ env.DH_REPO }}@${dhDigest}
+          docker pull ${{ env.DH_USERNAME }}/${{ env.DH_REPOSITORY }}@${dhDigest}
           docker pull registry.digitalocean.com/${{ env.DO_REGISTRY_NAME }}/${{ env.IMAGE_NAME }}@${doDigest}
           \`\`\`
 
@@ -561,7 +572,7 @@ jobs:
           if [ ! -z "$TOKEN" ]; then
             RESPONSE=$(curl -X DELETE \
               -H "Authorization: Bearer $TOKEN" \
-              "https://hub.docker.com/v2/repositories/${{ env.DH_USERNAME }}/${{ env.DH_REPO }}/tags/${{ github.sha }}/" \
+              "https://hub.docker.com/v2/repositories/${{ env.DH_USERNAME }}/${{ env.DH_REPOSITORY }}/tags/${{ github.sha }}/" \
               -w "\n%{http_code}" -s)
 
             HTTP_CODE=$(echo "$RESPONSE" | tail -n 1)
