@@ -20,7 +20,6 @@ module.exports = async ({ github, context, core }) => {
   const repository = process.env.GITHUB_REPOSITORY;
   const doRegistryName = process.env.DO_REGISTRY_NAME;
   const dhUsername = process.env.DH_USERNAME;
-  const dhRepository = process.env.DH_REPOSITORY;
 
   // Get digest outputs
   const doDigest = process.env.DO_DIGEST;
@@ -48,12 +47,12 @@ ${releaseNotes}
 
 Images have been pushed to the following container registries; some may be private.
 ${ghcrDigest ? `- GHCR: \`ghcr.io/${repository}:${sha}\`` : '- GHCR: ❌'}
-${dhDigest ? `- DHCR: \`${dhUsername}/${dhRepository}:${sha}\`` : '- DHCR: ❌'}
+${dhDigest ? `- DHCR: \`${dhUsername}/${imageName}:${sha}\`` : '- DHCR: ❌'}
 ${doDigest ? `- DOCR: \`registry.digitalocean.com/${doRegistryName}/${imageName}:${sha}\`` : '- DOCR: ❌'}
 
 \`\`\`bash
 docker pull ghcr.io/${repository}@${ghcrDigest}
-docker pull ${dhUsername}/${dhRepository}@${dhDigest}
+docker pull ${dhUsername}/${imageName}@${dhDigest}
 docker pull registry.digitalocean.com/${doRegistryName}/${imageName}@${doDigest}
 \`\`\`
 

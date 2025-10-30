@@ -27,7 +27,7 @@ jobs:
         id: config
         run: |
           . /opt/github-runner/secrets/registry.env
-          BUILD_IMAGE="${BUILD_IMAGE:-petros:latest}"
+          BUILD_IMAGE="${BUILD_IMAGE:-unattended/petros:latest}"
           echo "build-image=$BUILD_IMAGE" >> $GITHUB_OUTPUT
           echo "Using build image: $BUILD_IMAGE"
 
@@ -116,7 +116,6 @@ jobs:
         # Export to environment for subsequent steps
         echo "DO_REGISTRY_NAME=$DO_REGISTRY_NAME" >> $GITHUB_ENV
         echo "DH_USERNAME=$DH_USERNAME" >> $GITHUB_ENV
-        echo "DH_REPOSITORY=$DH_REPOSITORY" >> $GITHUB_ENV
 
     - name: Generate release notes
       id: release-notes
@@ -221,7 +220,7 @@ jobs:
       id: push-dh
       timeout-minutes: 30
       run: |
-        DH_IMAGE="${{ env.DH_USERNAME }}/${{ env.DH_REPOSITORY }}"
+        DH_IMAGE="${{ env.DH_USERNAME }}/${{ env.IMAGE_NAME }}"
         docker tag "${{ env.IMAGE_NAME }}:${{ github.sha }}" \
           "${DH_IMAGE}:${{ github.sha }}"
         PUSH_OUTPUT=$(docker push "${DH_IMAGE}:${{ github.sha }}" 2>&1)
@@ -283,7 +282,7 @@ jobs:
         docker push "${GHCR_IMAGE}:latest"
 
         # Docker Hub
-        DH_IMAGE="${{ env.DH_USERNAME }}/${{ env.DH_REPOSITORY }}"
+        DH_IMAGE="${{ env.DH_USERNAME }}/${{ env.IMAGE_NAME }}"
         docker tag "${DH_IMAGE}:${{ github.sha }}" \
           "${DH_IMAGE}:latest"
         docker push "${DH_IMAGE}:latest"
@@ -321,7 +320,9 @@ jobs:
 
     - name: Perform rollback on failure
       id: rollback
-      if: failure()
+      if: >-
+        failure() &&
+        steps.build.outputs.build_success == 'true'
       env:
         DO_DIGEST: ${{ steps.push-do.outputs.digest }}
         GHCR_DIGEST: ${{ steps.push-ghcr.outputs.digest }}
@@ -329,7 +330,9 @@ jobs:
       run: sh .github/scripts/rollback-registries.sh
 
     - name: Create rollback record
-      if: failure()
+      if: >-
+        failure() &&
+        steps.build.outputs.build_success == 'true'
       uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
       continue-on-error: true
       env:

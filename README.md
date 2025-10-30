@@ -45,21 +45,18 @@ This file contains non-sensitive registry identifiers and build configuration:
 
 ```bash
 # The Docker image to perform release builds with.
-# If not set, defaults to petros:latest from Docker Hub.
+# If not set, defaults to unattended/petros:latest from Docker Hub.
 # Examples:
 #   BUILD_IMAGE=registry.digitalocean.com/sigil/petros:latest
 #   BUILD_IMAGE=ghcr.io/your-org/petros:latest
-#   BUILD_IMAGE=petros:latest
-BUILD_IMAGE=petros:latest
+#   BUILD_IMAGE=unattended/petros:latest
+BUILD_IMAGE=unattended/petros:latest
 
 # The name of the DigitalOcean registry to publish the built image to.
 DO_REGISTRY_NAME=your-registry-name
 
 # The username of the Docker Hub account to publish the built image to.
 DH_USERNAME=your-dockerhub-username
-
-# The name of the Docker Hub repository to publish the built image to.
-DH_REPOSITORY=petros
 ```
 ### Public Configuration
 

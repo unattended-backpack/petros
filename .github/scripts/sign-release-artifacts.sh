@@ -17,7 +17,6 @@
 #   - DH_DIGEST: Docker Hub digest
 #   - DO_REGISTRY_NAME: DigitalOcean registry name
 #   - DH_USERNAME: Docker Hub username
-#   - DH_REPOSITORY: Docker Hub repository name
 
 set -e
 
@@ -58,7 +57,7 @@ $DO_DIGEST
 
 Registry URLs:
 - ghcr.io/$GITHUB_REPOSITORY@$GHCR_DIGEST
-- $DH_USERNAME/$DH_REPOSITORY@$DH_DIGEST
+- $DH_USERNAME/$IMAGE_NAME@$DH_DIGEST
 - registry.digitalocean.com/$DO_REGISTRY_NAME/$IMAGE_NAME@$DO_DIGEST
 EOF
 
