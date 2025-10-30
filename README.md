@@ -16,15 +16,72 @@ If the `ATTIC_SERVER_URL` is pointed to an attic server running on your local ma
 
 Configuration for building relies on the `nix.conf` file, where some build settings may be tuned. The `substituters` field is dynamically created to match the arguments supplied to the Docker build. The `trusted-public-keys` is also dynamically created in this fashion.
 
+## Configuration
+
+Petros follows a zero-trust model where all sensitive configuration is stored on the self-hosted runner, not in GitHub. This section documents the configuration required for automated releases via GitHub Actions.
+
+### Runner-Local Secrets
+
+All secrets must be stored on the self-hosted runner at `/opt/github-runner/secrets/`. These files are mounted read-only into the release workflow container and are never stored in GitHub.
+
+#### Required Secrets
+
+**GitHub Access Tokens** (for creating releases and pushing to GHCR):
+- `ci_gh_pat` - A GitHub fine-grained personal access token with repository permissions.
+- `ci_gh_classic_pat` - A GitHub classic personal access token for GHCR authentication.
+
+**Registry Access Tokens** (for pushing container images):
+- `do_token` - A DigitalOcean API token with container registry write access.
+- `dh_token` - A Docker Hub access token.
+
+**GPG Signing Keys** (for signing release artifacts):
+- `gpg_private_key` - A base64-encoded GPG private key for signing digests.
+- `gpg_passphrase` - The passphrase for the GPG private key.
+- `gpg_public_key` - The base64-encoded GPG public key (included in release notes).
+
+**Registry Configuration** (`registry.env` file):
+
+This file contains non-sensitive registry identifiers and build configuration:
+
+```bash
+# The Docker image to perform release builds with.
+# If not set, defaults to petros:latest from Docker Hub.
+# Examples:
+#   BUILD_IMAGE=registry.digitalocean.com/sigil/petros:latest
+#   BUILD_IMAGE=ghcr.io/your-org/petros:latest
+#   BUILD_IMAGE=petros:latest
+BUILD_IMAGE=petros:latest
+
+# The name of the DigitalOcean registry to publish the built image to.
+DO_REGISTRY_NAME=your-registry-name
+
+# The username of the Docker Hub account to publish the built image to.
+DH_USERNAME=your-dockerhub-username
+
+# The name of the Docker Hub repository to publish the built image to.
+DH_REPOSITORY=petros
+```
+### Public Configuration
+
+Public configuration that anyone building Petros needs is stored in the repository at [`.env.maintainer`](./.env.maintainer):
+
+- `IMAGE_NAME` - The name of the Docker image (default: `petros`).
+- `ATTIC_SERVER_URL` - The URL to the attic binary cache server.
+- `ATTIC_CACHE` - The name of the attic cache to use.
+- `ATTIC_PUBLIC_KEY` - The public key for verifying attic cache signatures.
+- `VENDOR_BASE_URL` - The base URL for downloading vendored binary tarballs.
+
+This file is version-controlled and updated by maintainers as infrastructure details change.
+
 ## The Attic Token
 
 The [`attic_token`](./attic_token) file distributed with this repository has read-only access to Unattended Backpack's public Nix binary attic cache; you may use it when building Petros from source to fetch builds of cached derivations. If you point to a different attic cache than ours, you may want to supply your own token with write permissions so that you may cache binaries as they are built. You may host your own attic cache and generate these tokens with [Granary](https://github.com/unattended-backpack/granary), our simple solution for making it easier to host an attic server.
 
-If you opt to prepare your own attic server, you will need to bootstrap Petros with some available attic binaries. Instructions for bootstrapping are provided [here](./BOOTSTRAP.md).
+If you opt to prepare your own attic server, you will need to bootstrap Petros with some available attic binaries. Instructions for bootstrapping are provided [here](./docs/BOOTSTRAP.md).
 
 ## Local Testing
 
-This repository is configured to support testing the release workflow locally using the `act` tool. There is a corresponding goal in the Makefile, and instructions for further management of secrets [here](./docs/WORKFLOW_TESTING.md).
+This repository is configured to support testing the release workflow locally using the `act` tool. There is a corresponding goal in the Makefile, and instructions for further management of secrets [here](./docs/WORKFLOW_TESTING.md). This local testing file also shows how to configure the required secrets for building.
 
 ## Regarding Vendored Nix Packages
 

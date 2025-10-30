@@ -27,14 +27,16 @@ jobs:
   analyze:
     runs-on: [ self-hosted, actions-runner ]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
 
       - name: Setup CodeQL
         run: echo "/opt/codeql" >> $GITHUB_PATH
 
-      - uses: github/codeql-action/init@v3
+      - uses: >-
+          github/codeql-action/init@777daa0c71818e7f377c8adc5415f74544c87142
         with:
           languages: c-cpp, csharp, java, javascript, python, ruby, rust
           build-mode: none
 
-      - uses: github/codeql-action/analyze@v3
+      - uses: >-
+          github/codeql-action/analyze@777daa0c71818e7f377c8adc5415f74544c87142
