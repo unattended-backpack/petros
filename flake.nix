@@ -104,6 +104,7 @@
           nodejs
           docker-client
           doctl
+          cosign
 
           # Vendored Rust 1.89.0 toolchain.
           rust_1_89.packages.stable.rustc
