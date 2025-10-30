@@ -139,13 +139,19 @@ jobs:
       run: |
         echo "Building ${{ env.IMAGE_NAME }} image ..."
 
-        # Use .attic_admin_token if it exists, otherwise use attic_token
-        if [ -f .attic_admin_token ]; then
+        # Determine which attic token to use (priority order):
+        # 1. Runner-local admin token (if exists)
+        # 2. Repository .attic_admin_token (if exists)
+        # 3. Repository attic_token (read-only fallback)
+        if [ -f /opt/github-runner/secrets/attic_admin_token ]; then
+          ATTIC_TOKEN_SOURCE=/opt/github-runner/secrets/attic_admin_token
+          echo "Using runner-local admin attic token"
+        elif [ -f .attic_admin_token ]; then
           ATTIC_TOKEN_SOURCE=.attic_admin_token
-          echo "Using admin attic token"
+          echo "Using repository admin attic token"
         else
           ATTIC_TOKEN_SOURCE=attic_token
-          echo "Using public attic token"
+          echo "Using repository read-only attic token"
         fi
 
         # Compute the attic_token hash for cache busting.
@@ -265,30 +271,6 @@ jobs:
         echo "image_match=true" >> $GITHUB_OUTPUT
         echo "image_id=${LOCAL_ID}" >> $GITHUB_OUTPUT
 
-    # After registry consistency is verified, add the 'latest' tag.
-    - name: Tag as latest after verification
-      if: steps.verify-digests.outputs.image_match == 'true'
-      run: |
-        # Tag and push 'latest' to each registry.
-        # DO Registry
-        DO_REG="registry.digitalocean.com"
-        DO_IMAGE="${DO_REG}/${{ env.DO_REGISTRY_NAME }}/${{ env.IMAGE_NAME }}"
-        docker tag "${DO_IMAGE}:${{ github.sha }}" "${DO_IMAGE}:latest"
-        docker push "${DO_IMAGE}:latest"
-
-        # GHCR
-        GHCR_IMAGE="ghcr.io/${{ github.repository }}"
-        docker tag "${GHCR_IMAGE}:${{ github.sha }}" \
-          "${GHCR_IMAGE}:latest"
-        docker push "${GHCR_IMAGE}:latest"
-
-        # Docker Hub
-        DH_IMAGE="${{ env.DH_USERNAME }}/${{ env.IMAGE_NAME }}"
-        docker tag "${DH_IMAGE}:${{ github.sha }}" \
-          "${DH_IMAGE}:latest"
-        docker push "${DH_IMAGE}:latest"
-        echo "✅ Successfully tagged all registries with 'latest'"
-
     - name: Sign images with cosign
       id: cosign-sign
       if: steps.verify-digests.outputs.image_match == 'true'
@@ -346,6 +328,30 @@ jobs:
         script: |
           const createRelease = require('./.github/scripts/create-release.js');
           await createRelease({ github, context, core });
+
+    # After registry consistency is verified, add the 'latest' tag.
+    - name: Tag as latest after verification
+      if: steps.create-release.outputs.RELEASE_SUCCESS == 'true'
+      run: |
+        # Tag and push 'latest' to each registry.
+        # DO Registry
+        DO_REG="registry.digitalocean.com"
+        DO_IMAGE="${DO_REG}/${{ env.DO_REGISTRY_NAME }}/${{ env.IMAGE_NAME }}"
+        docker tag "${DO_IMAGE}:${{ github.sha }}" "${DO_IMAGE}:latest"
+        docker push "${DO_IMAGE}:latest"
+
+        # GHCR
+        GHCR_IMAGE="ghcr.io/${{ github.repository }}"
+        docker tag "${GHCR_IMAGE}:${{ github.sha }}" \
+          "${GHCR_IMAGE}:latest"
+        docker push "${GHCR_IMAGE}:latest"
+
+        # Docker Hub
+        DH_IMAGE="${{ env.DH_USERNAME }}/${{ env.IMAGE_NAME }}"
+        docker tag "${DH_IMAGE}:${{ github.sha }}" \
+          "${DH_IMAGE}:latest"
+        docker push "${DH_IMAGE}:latest"
+        echo "✅ Successfully tagged all registries with 'latest'"
 
     - name: Perform rollback on failure
       id: rollback

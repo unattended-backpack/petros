@@ -58,6 +58,17 @@ DO_REGISTRY_NAME=your-registry-name
 # The username of the Docker Hub account to publish the built image to.
 DH_USERNAME=your-dockerhub-username
 ```
+
+#### Optional Secrets
+
+**Attic Cache Seeding** (optional):
+- `attic_admin_token` - An attic token with write permissions for seeding the binary cache during release builds. If not present, the workflow uses the repository's read-only `attic_token` file.
+
+The token selection priority order is:
+1. Runner-local `/opt/github-runner/secrets/attic_admin_token` (if exists).
+2. Repository `.attic_admin_token` (if exists).
+3. Repository `attic_token` (read-only fallback).
+
 ### Public Configuration
 
 Public configuration that anyone building Petros needs is stored in the repository at [`.env.maintainer`](./.env.maintainer):
