@@ -191,7 +191,7 @@ USER 10001:10001
 # Test that all expected binaries are working.
 COPY src/scripts/test.sh /home/petros/test.sh
 RUN sh /home/petros/test.sh bash ls cat echo openssl curl jq gpg \
-  pkg-config rustc cargo node docker doctl cosign && \
+  pkg-config rustc cargo node docker doctl cosign make && \
   rm /home/petros/test.sh
 RUN which cargo-prove
 RUN cargo prove --version

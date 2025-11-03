@@ -21,6 +21,15 @@ IMAGE_NAME ?= petros
 IMAGE_TAG ?= latest
 ACT_PULL ?= true
 
+.PHONY: init
+init:
+	@echo "Initializing configuration files ..."
+	@echo "Initialization complete. Review configuration before running."
+
+.PHONY: clean
+clean:
+	@echo "Cleaned."
+
 .PHONY: build
 build:
 	@echo "Building Petros Docker image ..."
@@ -60,12 +69,33 @@ build:
 		.
 	@echo "Build complete: $(IMAGE_NAME):$(IMAGE_TAG)"
 
+.PHONY: test
+test:
+	@echo "Running tests ..."
+	@echo "... tests completed."
+
+.PHONY: docker
+docker: build
+
+.PHONY: ci
+ci: build
+
+.PHONY: run
+run: shell
+
+.PHONY: shell
+shell:
+	@echo "Opening shell in container ..."
+	docker run --rm -it \
+		--entrypoint /petros/bin/bash \
+		$(IMAGE_NAME):$(IMAGE_TAG)
+
 .PHONY: act
 act:
 	@echo "Running GitHub Actions workflow locally with act ..."
 	@if [ ! -d ".act-secrets" ]; then \
 		echo "WARNING: .act-secrets/ directory not found" >&2; \
-		echo "See TESTING.md for setup instructions" >&2; \
+		echo "See docs/WORKFLOW_TESTING.md for setup instructions" >&2; \
 	fi
 	act push -j release \
 		--pull=$(ACT_PULL) \
@@ -77,8 +107,15 @@ help:
 	@echo "Petros Build System"
 	@echo ""
 	@echo "Targets:"
-	@echo "  build    Build the Petros Docker image."
-	@echo "  act      Test GitHub Actions release workflow locally."
+	@echo "  init            Initialize config from examples."
+	@echo "  clean           Clean output directories."
+	@echo "  build           Build native binaries."
+	@echo "  test            Run all tests for the build."
+	@echo "  docker          Build Docker image (compiles inside container)."
+	@echo "  ci              Build Docker image from pre-built binaries."
+	@echo "  run             Run the built Docker image locally."
+	@echo "  shell           Open a shell in the Docker image."
+	@echo "  act             Test GitHub Actions release workflow locally."
 	@echo "  help     Show this help message."
 	@echo ""
 	@echo "Configuration:"

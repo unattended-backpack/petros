@@ -1,6 +1,6 @@
 # Petros
 
-Petros is a Docker build image containing the software tooling we need and is designed to be resilient against supply chain disruption or attack.
+Upon this rock, I will build my church. Petros is a Docker build image containing the software tooling we need and is designed to be resilient against supply chain disruption or attack.
 
 ## About Attic
 
