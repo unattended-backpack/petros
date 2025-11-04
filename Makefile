@@ -97,9 +97,15 @@ act:
 		echo "WARNING: .act-secrets/ directory not found" >&2; \
 		echo "See docs/WORKFLOW_TESTING.md for setup instructions" >&2; \
 	fi
-	act push -j release \
+	@echo "Setting up temporary secrets mount ..."
+	@sudo mkdir -p /opt/github-runner
+	@sudo rm -rf /opt/github-runner/secrets
+	@sudo ln -s $(CURDIR)/.act-secrets /opt/github-runner/secrets
+	@trap "sudo rm -f /opt/github-runner/secrets" EXIT; \
+	DOCKER_HOST="" act push -j release \
+		--container-daemon-socket=- \
+		--container-options "-v /opt/github-runner/secrets:/opt/github-runner/secrets:ro" \
 		--pull=$(ACT_PULL) \
-		--container-options "-v $(CURDIR)/.act-secrets:/opt/github-runner/secrets:ro --group-add 960" \
 		$(if $(DOCKER_BUILD_ARGS),--env DOCKER_BUILD_ARGS="$(DOCKER_BUILD_ARGS)")
 
 .PHONY: help
