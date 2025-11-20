@@ -97,14 +97,15 @@
         name = "petros-env";
         paths = with pkgs; [
           bash coreutils git cacert curl jq gnumake file
-          clang lld pkg-config
-          openssl zlib lz4 snappy zstd
+          clang lld llvmPackages.libclang.lib pkg-config protobuf go
+          openssl openssl.dev zlib zlib.dev lz4 lz4.dev snappy zstd zstd.dev
           attic-client
           attic-server
           nodejs
           docker-client
           doctl
           cosign
+          crane
 
           # Vendored Rust 1.89.0 toolchain.
           rust_1_89.packages.stable.rustc
