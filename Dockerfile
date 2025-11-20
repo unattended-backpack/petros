@@ -186,12 +186,15 @@ ENV RUSTUP_HOME=/home/petros/.rustup
 ENV CARGO_HOME=/home/petros/.cargo
 ENV PATH=/home/petros/.sp1-shims/bin:/home/petros/.cargo/bin:\
 /petros/bin:$PATH
+ENV PKG_CONFIG_PATH=/petros/lib/pkgconfig
+ENV CC=clang
+ENV LIBCLANG_PATH=/petros/lib
 USER 10001:10001
 
 # Test that all expected binaries are working.
 COPY src/scripts/test.sh /home/petros/test.sh
 RUN sh /home/petros/test.sh bash ls cat echo openssl curl jq gpg \
-  pkg-config rustc cargo node docker doctl cosign make file && \
+  pkg-config rustc cargo node docker doctl cosign crane make file protoc go clang && \
   rm /home/petros/test.sh
 RUN which cargo-prove
 RUN cargo prove --version
