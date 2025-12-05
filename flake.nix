@@ -96,7 +96,7 @@
       petros = pkgs.buildEnv {
         name = "petros-env";
         paths = with pkgs; [
-          bash coreutils git cacert curl jq gnumake file
+          bash coreutils git cacert curl jq gnumake file perl
           clang lld llvmPackages.libclang.lib pkg-config protobuf go
           openssl openssl.dev zlib zlib.dev lz4 lz4.dev snappy zstd zstd.dev
           attic-client
