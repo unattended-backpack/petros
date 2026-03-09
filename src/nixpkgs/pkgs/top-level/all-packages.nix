@@ -6797,6 +6797,13 @@ with pkgs;
     lldb_19 = llvmPackages_19.lldb;
     llvm_19 = llvmPackages_19.llvm;
     bolt_19 = llvmPackages_19.bolt;
+
+    llvmPackages_21 = llvmPackagesSet."21";
+    clang_21 = llvmPackages_21.clang;
+    lld_21 = llvmPackages_21.lld;
+    lldb_21 = llvmPackages_21.lldb;
+    llvm_21 = llvmPackages_21.llvm;
+    bolt_21 = llvmPackages_21.bolt;
   }) llvmPackages_13
     llvmPackages_14
     llvmPackages_15
@@ -6812,7 +6819,13 @@ with pkgs;
     lld_19
     lldb_19
     llvm_19
-    bolt_19;
+    bolt_19
+    llvmPackages_21
+    clang_21
+    lld_21
+    lldb_21
+    llvm_21
+    bolt_21;
 
   lorri = callPackage ../tools/misc/lorri {
     inherit (darwin.apple_sdk.frameworks) CoreServices Security;
@@ -6946,6 +6959,10 @@ with pkgs;
   rust_1_89 = callPackage ../development/compilers/rust/1_89.nix {
     inherit (darwin.apple_sdk.frameworks) CoreFoundation Security SystemConfiguration;
     llvm_19 = llvmPackages_19.libllvm;
+  };
+  rust_1_93 = callPackage ../development/compilers/rust/1_93.nix {
+    inherit (darwin.apple_sdk.frameworks) CoreFoundation Security SystemConfiguration;
+    llvm_21 = llvmPackages_21.libllvm;
   };
   rust = rust_1_82;
 

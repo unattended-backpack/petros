@@ -107,9 +107,9 @@
           cosign
           crane
 
-          # Vendored Rust 1.89.0 toolchain.
-          rust_1_89.packages.stable.rustc
-          rust_1_89.packages.stable.cargo
+          # Vendored Rust 1.93.1 toolchain.
+          rust_1_93.packages.stable.rustc
+          rust_1_93.packages.stable.cargo
 
           # Vendored SP1.
           sp1_cli
