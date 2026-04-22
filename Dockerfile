@@ -29,6 +29,40 @@ RUN test -n "${VENDOR_BASE_URL}" || ( \
   && exit 1)
 ENV VENDOR_BASE_URL=${VENDOR_BASE_URL}
 
+# SP1 release that drives the path for both vendored SP1 assets (cargo-prove
+# CLI + succinct rust toolchain). Tarballs live at
+# ${VENDOR_BASE_URL}/sp1/${SP1_VERSION}/... with their sha256s committed at
+# src/sp1/${SP1_VERSION}/.
+ARG SP1_VERSION
+RUN test -n "${SP1_VERSION}" || ( \
+  echo "ERROR: SP1_VERSION build argument is required!" >&2 \
+  && exit 1)
+ENV SP1_VERSION=${SP1_VERSION}
+
+# RISC Zero rust toolchain version — matches the directory name rzup uses
+# under ~/.risc0/toolchains/v<VER>-rust-<target>/, and the path component on
+# the vendor CDN under ${VENDOR_BASE_URL}/risc0/${RISC0_TOOLCHAIN_VERSION}/.
+ARG RISC0_TOOLCHAIN_VERSION
+RUN test -n "${RISC0_TOOLCHAIN_VERSION}" || ( \
+  echo "ERROR: RISC0_TOOLCHAIN_VERSION build argument is required!" >&2 \
+  && exit 1)
+ENV RISC0_TOOLCHAIN_VERSION=${RISC0_TOOLCHAIN_VERSION}
+
+# Upstream attic snapshot tag (from the `attic-*.outpath` nix store path
+# suffix). Pins the attic-store closure + its two .outpath files.
+ARG ATTIC_VERSION
+RUN test -n "${ATTIC_VERSION}" || ( \
+  echo "ERROR: ATTIC_VERSION build argument is required!" >&2 \
+  && exit 1)
+ENV ATTIC_VERSION=${ATTIC_VERSION}
+
+# Upstream nix release whose static binary is vendored here.
+ARG NIX_VERSION
+RUN test -n "${NIX_VERSION}" || ( \
+  echo "ERROR: NIX_VERSION build argument is required!" >&2 \
+  && exit 1)
+ENV NIX_VERSION=${NIX_VERSION}
+
 # Validate that our `attic_token` secret is mounted.
 RUN --mount=type=secret,id=attic_token \
   test -f /run/secrets/attic_token || ( \
@@ -76,17 +110,20 @@ RUN cd /tmp && sha256sum -c curl.sha256 || ( \
   && mv /tmp/curl /usr/local/bin/curl \
   && rm /tmp/curl.sha256
 
-# Download vendored dependencies from self-hosted source.
-# This script verifies that checksums match.
-COPY src/nix/nix.sha256 /tmp/
-COPY src/attic/attic-store.tar.gz.sha256 /tmp/
-COPY src/sp1/ /tmp/
+# Download vendored dependencies from self-hosted source. Each asset's
+# versioned subdir is COPYd into a matching /tmp/<asset>/ subdir so vendor.sh
+# can place the two same-named rust-toolchain tarballs (SP1 + RISC Zero) and
+# the two same-named sha256 scopes (nix + attic) without collision.
+COPY src/nix/${NIX_VERSION}/ /tmp/nix/
+COPY src/attic/${ATTIC_VERSION}/ /tmp/attic/
+COPY src/sp1/${SP1_VERSION}/ /tmp/sp1/
+COPY src/risc0/${RISC0_TOOLCHAIN_VERSION}/ /tmp/risc0/
 RUN /build/src/scripts/vendor.sh
 
 # Install static Nix.
-RUN mv /tmp/nix /usr/local/bin/nix \
+RUN mv /tmp/nix/nix /usr/local/bin/nix \
   && chmod +x /usr/local/bin/nix \
-  && rm /tmp/nix.sha256
+  && rm -rf /tmp/nix
 
 # Prepare the statically-vendored Nix with store and build users.
 RUN mkdir -p /nix/store /nix/var/nix/profiles/per-user/root; \
@@ -95,16 +132,15 @@ RUN mkdir -p /nix/store /nix/var/nix/profiles/per-user/root; \
 
 # Extract vendored attic binaries before using private substituters.
 # This solves the chicken-and-egg problem of needing attic to authenticate
-# against the private cache, but needing the cache to get attic.
-COPY src/attic/attic-client.outpath /tmp/
-COPY src/attic/attic-server.outpath /tmp/
-RUN tar -C / -xzf /tmp/attic-store.tar.gz \
-  && ATTIC_CLIENT=$(cat /tmp/attic-client.outpath) \
-  && ATTIC_SERVER=$(cat /tmp/attic-server.outpath) \
+# against the private cache, but needing the cache to get attic. The attic
+# tarball + its two outpath files arrived via COPY src/attic/${ATTIC_VERSION}/
+# → /tmp/attic/ above; vendor.sh downloaded attic-store.tar.gz alongside.
+RUN tar -C / -xzf /tmp/attic/attic-store.tar.gz \
+  && ATTIC_CLIENT=$(cat /tmp/attic/attic-client.outpath) \
+  && ATTIC_SERVER=$(cat /tmp/attic/attic-server.outpath) \
   && ln -s $ATTIC_CLIENT/bin/attic /usr/local/bin/attic \
   && ln -s $ATTIC_SERVER/bin/atticadm /usr/local/bin/atticadm \
-  && rm /tmp/attic-store.tar.gz /tmp/attic-store.tar.gz.sha256 \
-     /tmp/attic-client.outpath /tmp/attic-server.outpath
+  && rm -rf /tmp/attic
 
 # Validate that the `ATTIC_SERVER_URL` is accessible.
 RUN curl --fail --silent --show-error \
@@ -113,16 +149,26 @@ RUN curl --fail --silent --show-error \
     && exit 1)
 
 # Extract vendored SP1 tarballs to directories for `flake.nix` PATH URLs.
+# flake input paths (/build/src/sp1/sp1-cli, /build/src/sp1/sp1-tc) stay
+# version-stable; versioning lives in the vendor paths (/tmp/sp1/…) and the
+# SP1_VERSION env var.
 RUN mkdir -p /build/src/sp1/sp1-cli && \
-  tar -xzf /tmp/cargo_prove_v5.2.1_linux_amd64.tar.gz \
+  tar -xzf /tmp/sp1/cargo_prove_${SP1_VERSION}_linux_amd64.tar.gz \
     -C /build/src/sp1/sp1-cli/ && \
-  rm /tmp/cargo_prove_v5.2.1_linux_amd64.tar.gz \
-     /tmp/cargo_prove_v5.2.1_linux_amd64.tar.gz.sha256
+  rm -rf /tmp/sp1/cargo_prove_${SP1_VERSION}_linux_amd64.tar.gz \
+         /tmp/sp1/cargo_prove_${SP1_VERSION}_linux_amd64.tar.gz.sha256
 RUN mkdir -p /build/src/sp1/sp1-tc && \
-  tar -xzf /tmp/rust-toolchain-x86_64-unknown-linux-gnu.tar.gz \
+  tar -xzf /tmp/sp1/rust-toolchain-x86_64-unknown-linux-gnu.tar.gz \
     -C /build/src/sp1/sp1-tc/ && \
-  rm /tmp/rust-toolchain-x86_64-unknown-linux-gnu.tar.gz \
-     /tmp/rust-toolchain-x86_64-unknown-linux-gnu.tar.gz.sha256
+  rm -rf /tmp/sp1/rust-toolchain-x86_64-unknown-linux-gnu.tar.gz \
+         /tmp/sp1/rust-toolchain-x86_64-unknown-linux-gnu.tar.gz.sha256
+
+# Extract vendored RISC Zero toolchain to the path flake.nix points at.
+RUN mkdir -p /build/src/risc0/risc0-tc && \
+  tar -xzf /tmp/risc0/rust-toolchain-x86_64-unknown-linux-gnu.tar.gz \
+    -C /build/src/risc0/risc0-tc/ && \
+  rm -rf /tmp/risc0/rust-toolchain-x86_64-unknown-linux-gnu.tar.gz \
+         /tmp/risc0/rust-toolchain-x86_64-unknown-linux-gnu.tar.gz.sha256
 
 # Register our vendored nixpkgs as the default
 RUN nix registry add nixpkgs path:/nixpkgs
@@ -144,6 +190,15 @@ RUN /build/src/scripts/export.sh path:/build#petros
 # Petros is a final, minimal build image containing only our exported packages
 # with Nix removed.
 FROM alpine:3.20@sha256:765942a4039992336de8dd5db680586e1a206607dd06170ff0a37267a9e01958 AS petros
+
+# Re-declare build-arg we need in the runtime stage — ARGs don't carry across
+# stages. The rzup layout setup below interpolates this into the toolchain
+# directory name rzup expects.
+ARG RISC0_TOOLCHAIN_VERSION
+RUN test -n "${RISC0_TOOLCHAIN_VERSION}" || ( \
+  echo "ERROR: RISC0_TOOLCHAIN_VERSION build argument is required!" >&2 \
+  && exit 1)
+ENV RISC0_TOOLCHAIN_VERSION=${RISC0_TOOLCHAIN_VERSION}
 
 # OCI image labels for metadata and documentation.
 LABEL org.opencontainers.image.title="Petros"
@@ -171,6 +226,18 @@ RUN set -eux; \
   ln -sf /petros/bin/rustfmt /petros/opt/succinct/bin/rustfmt \
     || true; \
   ln -sf /petros/bin/rustdoc /petros/opt/succinct/bin/rustdoc \
+    || true
+
+# Link binaries into the RISC Zero toolchain. The vendored risc0 tarball
+# ships its own cargo/rustc/rustfmt/rustdoc; we overlay the petros-provided
+# cargo so nested `cargo` invocations (e.g. build.rs spawning cargo to
+# compile the guest crate) resolve consistently; rustfmt/rustdoc are opt-in:
+# the toolchain tarball may or may not include them, so tolerate absence.
+RUN set -eux; \
+  ln -sf /petros/bin/cargo /petros/opt/risc0/bin/cargo; \
+  ln -sf /petros/bin/rustfmt /petros/opt/risc0/bin/rustfmt \
+    || true; \
+  ln -sf /petros/bin/rustdoc /petros/opt/risc0/bin/rustdoc \
     || true
 
 # Create an unprivileged user named `petros`.
@@ -202,14 +269,42 @@ RUN attic --version
 RUN atticadm --version
 RUN cosign version
 
-# Link the Succinct toolchain into `rustup`.
+# Link the Succinct toolchain into `rustup` so `cargo +succinct ...` works.
+# We don't also link the RISC Zero toolchain here: risc0-build bypasses rustup
+# entirely and uses the `rzup` library for toolchain discovery (see below).
 RUN mkdir -p "$RUSTUP_HOME" "$CARGO_HOME"; \
   rustup toolchain link succinct /petros/opt/succinct; \
   rustup toolchain list
 
+# Expose the RISC Zero toolchain in the rzup-compatible layout that risc0-build
+# (via the rzup crate) expects when resolving the rustc path. See
+# risc0-build's `rust_toolchain()` fn — it calls `rzup::Rzup::new()` which
+# reads $HOME/.risc0/ for toolchains, NOT rustup. The `.rzup` sentinel is
+# checked by older risc0-build versions; harmless to leave.
+#
+# IMPORTANT: rzup's Paths::find_version_dir_inner (paths.rs:37) explicitly
+# filters out entries that are symlinks:
+#     entry.path().is_dir() && !entry.metadata().unwrap().is_symlink()
+# So `ln -s /petros/opt/risc0 ...` gets ignored and build.rs panics with
+# "Risc Zero Rust toolchain not found". rzup only inspects the top-level
+# entries, not what's inside, so we make the toolchain dir a REAL mkdir'd
+# directory and populate it with symlinks into /petros/opt/risc0/. Disk
+# cost: ~4 KB of symlink entries; the 1.5 GB toolchain stays in /nix/store
+# via buildEnv's existing symlinks.
+RUN set -eux; \
+  TC_DIR="$HOME/.risc0/toolchains/v${RISC0_TOOLCHAIN_VERSION}-rust-x86_64-unknown-linux-gnu"; \
+  mkdir -p "$TC_DIR"; \
+  ln -s /petros/opt/risc0/bin "$TC_DIR/bin"; \
+  ln -s /petros/opt/risc0/lib "$TC_DIR/lib"; \
+  : > "$HOME/.risc0/.rzup"; \
+  printf '[default_versions]\nrust = "%s"\n' "$RISC0_TOOLCHAIN_VERSION" \
+    > "$HOME/.risc0/settings.toml"
+
 # Prepare wrapper scripts and shim for managing Rust toolchains. The wrappers
 # handle the +toolchain syntax and this shim routes `cargo prove` to the
-# Succinct toolchain.
+# Succinct toolchain. RISC Zero does not need an analogous shim: standard
+# risc0 host crates invoke `risc0-build` from their own build.rs, which
+# discovers the toolchain via the rzup layout above.
 COPY src/scripts/wrapped_rustc.sh "$CARGO_HOME/bin/rustc"
 COPY src/scripts/wrapped_cargo.sh "$CARGO_HOME/bin/cargo"
 COPY src/scripts/sp1_shim.sh "$HOME/.sp1-shims/bin/cargo-prove"

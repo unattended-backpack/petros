@@ -15,6 +15,8 @@
   inputs.sp1-cli.flake = false;
   inputs.sp1-tc.url = "path:/build/src/sp1/sp1-tc";
   inputs.sp1-tc.flake = false;
+  inputs.risc0-tc.url = "path:/build/src/risc0/risc0-tc";
+  inputs.risc0-tc.flake = false;
 
   outputs = inputs@{ self, nixpkgs, ... }:
   let
@@ -79,6 +81,31 @@
       '';
     };
 
+    # Install the RISC Zero custom Rust toolchain. The risc0 toolchain ships
+    # with the `riscv32im-risc0-zkvm-elf` target, which host crates using
+    # risc0-build's build.rs pattern cross-compile their guest code to. We
+    # intentionally don't vendor cargo-risczero: it hardcodes a Docker-based
+    # guest build, and the underlying risc0-build library is usable directly
+    # via a host crate's build.rs with `GuestOptions { use_docker: None, .. }`.
+    risc0_tc = pkgs.stdenvNoCC.mkDerivation {
+      pname = "risc0-tc";
+      version = "r0-1.94.1";
+      src = inputs."risc0-tc";
+      nativeBuildInputs = [ pkgs.autoPatchelfHook ];
+      buildInputs = [
+        pkgs.glibc
+        pkgs.stdenv.cc.cc
+        pkgs.openssl
+        pkgs.zlib
+      ];
+      dontStrip = true;
+      installPhase = ''
+        set -euo pipefail
+        mkdir -p "$out/opt/risc0"
+        cp -r "$src"/* "$out/opt/risc0/"
+      '';
+    };
+
     # Install the minimal rustup binary.
     rustup_min = pkgs.runCommand "rustup-min" {} ''
       mkdir -p $out/bin
@@ -114,6 +141,11 @@
           # Vendored SP1.
           sp1_cli
           sp1_tc
+
+          # Vendored RISC Zero toolchain (no CLI; builds go through
+          # risc0-build invoked by a host crate's build.rs).
+          risc0_tc
+
           rustup_min
 
           # GnuPG without TPM support (avoids swtpm build failures).

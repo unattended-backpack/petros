@@ -15,6 +15,10 @@ ATTIC_SERVER_URL ?=
 ATTIC_CACHE ?=
 ATTIC_PUBLIC_KEY ?=
 VENDOR_BASE_URL ?=
+SP1_VERSION ?=
+RISC0_TOOLCHAIN_VERSION ?=
+ATTIC_VERSION ?=
+NIX_VERSION ?=
 ATTIC_TOKEN_FILE ?= attic_token
 DOCKER_BUILD_ARGS ?=
 IMAGE_NAME ?= petros
@@ -49,6 +53,22 @@ build:
 		echo "ERROR: VENDOR_BASE_URL not set (check .env.maintainer)" >&2; \
 		exit 1; \
 	fi
+	@if [ -z "$(SP1_VERSION)" ]; then \
+		echo "ERROR: SP1_VERSION not set (check .env.maintainer)" >&2; \
+		exit 1; \
+	fi
+	@if [ -z "$(RISC0_TOOLCHAIN_VERSION)" ]; then \
+		echo "ERROR: RISC0_TOOLCHAIN_VERSION not set (check .env.maintainer)" >&2; \
+		exit 1; \
+	fi
+	@if [ -z "$(ATTIC_VERSION)" ]; then \
+		echo "ERROR: ATTIC_VERSION not set (check .env.maintainer)" >&2; \
+		exit 1; \
+	fi
+	@if [ -z "$(NIX_VERSION)" ]; then \
+		echo "ERROR: NIX_VERSION not set (check .env.maintainer)" >&2; \
+		exit 1; \
+	fi
 	@if [ ! -f "$(ATTIC_TOKEN_FILE)" ]; then \
 		echo "ERROR: Token file '$(ATTIC_TOKEN_FILE)' not found" >&2; \
 		exit 1; \
@@ -63,6 +83,10 @@ build:
 		--build-arg ATTIC_CACHE=$(ATTIC_CACHE) \
 		--build-arg ATTIC_PUBLIC_KEY=$(ATTIC_PUBLIC_KEY) \
 		--build-arg VENDOR_BASE_URL=$(VENDOR_BASE_URL) \
+		--build-arg SP1_VERSION=$(SP1_VERSION) \
+		--build-arg RISC0_TOOLCHAIN_VERSION=$(RISC0_TOOLCHAIN_VERSION) \
+		--build-arg ATTIC_VERSION=$(ATTIC_VERSION) \
+		--build-arg NIX_VERSION=$(NIX_VERSION) \
 		--build-arg ATTIC_CACHE_BUST=$(ATTIC_CACHE_BUST) \
 		--secret id=attic_token,src=$(ATTIC_TOKEN_SOURCE) \
 		-t $(IMAGE_NAME):$(IMAGE_TAG) \
