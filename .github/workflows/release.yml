@@ -125,6 +125,10 @@ jobs:
         echo "ATTIC_CACHE=$ATTIC_CACHE" >> $GITHUB_ENV
         echo "ATTIC_PUBLIC_KEY=$ATTIC_PUBLIC_KEY" >> $GITHUB_ENV
         echo "VENDOR_BASE_URL=$VENDOR_BASE_URL" >> $GITHUB_ENV
+        echo "SP1_VERSION=$SP1_VERSION" >> $GITHUB_ENV
+        echo "RISC0_TOOLCHAIN_VERSION=$RISC0_TOOLCHAIN_VERSION" >> $GITHUB_ENV
+        echo "ATTIC_VERSION=$ATTIC_VERSION" >> $GITHUB_ENV
+        echo "NIX_VERSION=$NIX_VERSION" >> $GITHUB_ENV
 
         # Load registry configuration
         . /opt/github-runner/secrets/registry.env
@@ -179,6 +183,10 @@ jobs:
           --build-arg ATTIC_CACHE="${{ env.ATTIC_CACHE }}" \
           --build-arg ATTIC_PUBLIC_KEY="${{ env.ATTIC_PUBLIC_KEY }}" \
           --build-arg VENDOR_BASE_URL="${{ env.VENDOR_BASE_URL }}" \
+          --build-arg SP1_VERSION="${{ env.SP1_VERSION }}" \
+          --build-arg RISC0_TOOLCHAIN_VERSION="${{ env.RISC0_TOOLCHAIN_VERSION }}" \
+          --build-arg ATTIC_VERSION="${{ env.ATTIC_VERSION }}" \
+          --build-arg NIX_VERSION="${{ env.NIX_VERSION }}" \
           --build-arg ATTIC_CACHE_BUST="${ATTIC_TOKEN_HASH}" \
           --secret id=attic_token,src=${ATTIC_TOKEN_SOURCE} \
           -t ${{ env.IMAGE_NAME }}:${{ github.sha }} \
