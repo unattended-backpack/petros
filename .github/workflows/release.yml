@@ -9,6 +9,7 @@ on:
       - 'docs/**'
       - '.github/workflows/codeql.yml'
       - '.github/workflows/release.yml'
+  workflow_dispatch:
 
 permissions:
   actions: read

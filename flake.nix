@@ -135,8 +135,6 @@
     gnupg_notpm = pkgs.gnupg.override {
       withTpm2Tss = false;
     };
-
-
   in {
     packages.${system} = {
       petros = pkgs.buildEnv {
