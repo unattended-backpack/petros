@@ -78,8 +78,12 @@ Public configuration that anyone building Petros needs is stored in the reposito
 - `ATTIC_CACHE` - The name of the attic cache to use.
 - `ATTIC_PUBLIC_KEY` - The public key for verifying attic cache signatures.
 - `VENDOR_BASE_URL` - The base URL for downloading vendored binary tarballs.
+- `SP1_VERSION` - The SP1 release tag that drives the path for both vendored SP1 assets (the `cargo-prove` CLI and the Succinct Rust toolchain). The Dockerfile expects their committed sha256s at `src/sp1/<SP1_VERSION>/` and fetches the matching tarballs from `${VENDOR_BASE_URL}/sp1/<SP1_VERSION>/`.
+- `RISC0_TOOLCHAIN_VERSION` - The RISC Zero Rust toolchain version. The Dockerfile expects the committed sha256 at `src/risc0/<RISC0_TOOLCHAIN_VERSION>/` and fetches the matching tarball from `${VENDOR_BASE_URL}/risc0/<RISC0_TOOLCHAIN_VERSION>/`.
+- `ATTIC_VERSION` - The upstream attic snapshot tag whose `attic-client` and `attic-server` closures are bootstrapped into the image. The Dockerfile expects the sha256 plus both `.outpath` files at `src/attic/<ATTIC_VERSION>/` and fetches the closure tarball from `${VENDOR_BASE_URL}/attic/<ATTIC_VERSION>/`.
+- `NIX_VERSION` - The upstream Nix release whose statically linked binary is vendored. The Dockerfile expects the committed sha256 at `src/nix/<NIX_VERSION>/` and fetches the binary from `${VENDOR_BASE_URL}/nix/<NIX_VERSION>/`.
 
-This file is version-controlled and updated by maintainers as infrastructure details change.
+This file is version-controlled and updated by maintainers as infrastructure details change. Procedures for bumping each of the four vendored dependencies live in [`docs/VENDORING.md`](./docs/VENDORING.md).
 
 ## The Attic Token
 

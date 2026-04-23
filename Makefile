@@ -146,7 +146,7 @@ help:
 	@echo "  run             Run the built Docker image locally."
 	@echo "  shell           Open a shell in the Docker image."
 	@echo "  act             Test GitHub Actions release workflow locally."
-	@echo "  help     Show this help message."
+	@echo "  help            Show this help message."
 	@echo ""
 	@echo "Configuration:"
 	@echo "  Variables are loaded from .env.maintainer"
