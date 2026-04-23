@@ -3126,6 +3126,13 @@ with pkgs;
   cudaPackages_12_2 = callPackage ./cuda-packages.nix { cudaVersion = "12.2"; };
   cudaPackages_12_3 = callPackage ./cuda-packages.nix { cudaVersion = "12.3"; };
   cudaPackages_12_4 = callPackage ./cuda-packages.nix { cudaVersion = "12.4"; };
+  # CUDA 12.9.1 backported from nixpkgs master (PR #405286, commit d3802543).
+  # Provides native Blackwell-consumer (sm_120) support for RTX 50-series GPUs.
+  # Manifest JSONs under cuda-modules/cuda/manifests/ + extension.nix + the
+  # nvcc-compatibilities.nix entry complete the package definition. cudnn is
+  # NOT backported alongside (we don't use it here); if that becomes needed
+  # later, port cudnn_9.11+ from the same upstream PR.
+  cudaPackages_12_9 = callPackage ./cuda-packages.nix { cudaVersion = "12.9"; };
   cudaPackages_12 = cudaPackages_12_4; # Latest supported by cudnn
 
   cudaPackages = recurseIntoAttrs cudaPackages_12;
@@ -6797,6 +6804,13 @@ with pkgs;
     lldb_19 = llvmPackages_19.lldb;
     llvm_19 = llvmPackages_19.llvm;
     bolt_19 = llvmPackages_19.bolt;
+
+    llvmPackages_21 = llvmPackagesSet."21";
+    clang_21 = llvmPackages_21.clang;
+    lld_21 = llvmPackages_21.lld;
+    lldb_21 = llvmPackages_21.lldb;
+    llvm_21 = llvmPackages_21.llvm;
+    bolt_21 = llvmPackages_21.bolt;
   }) llvmPackages_13
     llvmPackages_14
     llvmPackages_15
@@ -6812,7 +6826,13 @@ with pkgs;
     lld_19
     lldb_19
     llvm_19
-    bolt_19;
+    bolt_19
+    llvmPackages_21
+    clang_21
+    lld_21
+    lldb_21
+    llvm_21
+    bolt_21;
 
   lorri = callPackage ../tools/misc/lorri {
     inherit (darwin.apple_sdk.frameworks) CoreServices Security;
@@ -6946,6 +6966,10 @@ with pkgs;
   rust_1_89 = callPackage ../development/compilers/rust/1_89.nix {
     inherit (darwin.apple_sdk.frameworks) CoreFoundation Security SystemConfiguration;
     llvm_19 = llvmPackages_19.libllvm;
+  };
+  rust_1_93 = callPackage ../development/compilers/rust/1_93.nix {
+    inherit (darwin.apple_sdk.frameworks) CoreFoundation Security SystemConfiguration;
+    llvm_21 = llvmPackages_21.libllvm;
   };
   rust = rust_1_82;
 

@@ -43,7 +43,8 @@ rustPlatform.buildRustPackage.override {
   RUSTC_BOOTSTRAP = 1;
 
   postInstall = ''
-    wrapProgram "$out/bin/cargo" --suffix PATH : "${rustc}/bin"
+    wrapProgram "$out/bin/cargo" --suffix PATH : "${rustc}/bin" \
+      --prefix LD_LIBRARY_PATH : "${lib.makeLibraryPath [ curl openssl zlib stdenv.cc.cc ]}"
 
     installManPage src/tools/cargo/src/etc/man/*
 

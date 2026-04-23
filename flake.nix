@@ -15,6 +15,8 @@
   inputs.sp1-cli.flake = false;
   inputs.sp1-tc.url = "path:/build/src/sp1/sp1-tc";
   inputs.sp1-tc.flake = false;
+  inputs.risc0-tc.url = "path:/build/src/risc0/risc0-tc";
+  inputs.risc0-tc.flake = false;
 
   outputs = inputs@{ self, nixpkgs, ... }:
   let
@@ -22,6 +24,25 @@
     pkgs = import nixpkgs {
       inherit system;
       overlays = [];
+      # NVIDIA CUDA redistributables ship under NVIDIA's proprietary EULA,
+      # which nixpkgs classifies as "unfree" and refuses to evaluate by
+      # default. Opt in *only* for packages whose license shortName is
+      # "CUDA EULA" (both `nvidiaCuda` and `nvidiaCudaRedist` in
+      # lib/licenses.nix use that exact label) so petros can consume
+      # cudaPackages_12_9 without widening the door to arbitrary unfree
+      # packages. The explicit `paths` list below is the ultimate allowlist
+      # for what lands in the image anyway; this predicate just unblocks
+      # evaluation of the CUDA closure.
+      config.allowUnfreePredicate =
+        pkg:
+        let
+          licenses =
+            if builtins.isList (pkg.meta.license or null) then
+              pkg.meta.license
+            else
+              [ (pkg.meta.license or { shortName = ""; }) ];
+        in
+        builtins.all (lic: (lic.shortName or "") == "CUDA EULA") licenses;
     };
 
     # Install the SP1 CLI.
@@ -79,6 +100,31 @@
       '';
     };
 
+    # Install the RISC Zero custom Rust toolchain. The risc0 toolchain ships
+    # with the `riscv32im-risc0-zkvm-elf` target, which host crates using
+    # risc0-build's build.rs pattern cross-compile their guest code to. We
+    # intentionally don't vendor cargo-risczero: it hardcodes a Docker-based
+    # guest build, and the underlying risc0-build library is usable directly
+    # via a host crate's build.rs with `GuestOptions { use_docker: None, .. }`.
+    risc0_tc = pkgs.stdenvNoCC.mkDerivation {
+      pname = "risc0-tc";
+      version = "r0-1.94.1";
+      src = inputs."risc0-tc";
+      nativeBuildInputs = [ pkgs.autoPatchelfHook ];
+      buildInputs = [
+        pkgs.glibc
+        pkgs.stdenv.cc.cc
+        pkgs.openssl
+        pkgs.zlib
+      ];
+      dontStrip = true;
+      installPhase = ''
+        set -euo pipefail
+        mkdir -p "$out/opt/risc0"
+        cp -r "$src"/* "$out/opt/risc0/"
+      '';
+    };
+
     # Install the minimal rustup binary.
     rustup_min = pkgs.runCommand "rustup-min" {} ''
       mkdir -p $out/bin
@@ -95,8 +141,33 @@
     packages.${system} = {
       petros = pkgs.buildEnv {
         name = "petros-env";
+        # CUDA redistributables each ship a top-level /LICENSE file under
+        # their store path (different bytes per package — each is the
+        # NVIDIA EULA as it pertains to that specific component). When
+        # buildEnv unions store paths as symlinks, those collide. There's
+        # no sane merge; accept that one of the LICENSE files wins and
+        # move on. License text is identical in intent across the CUDA
+        # redists, so the loss is cosmetic, and the packages' own store
+        # paths (reachable via /nix/store/... directly) preserve the
+        # original LICENSE files verbatim for compliance purposes.
+        ignoreCollisions = true;
+        # Pull multi-output CUDA (and other) packages' non-default outputs
+        # so buildEnv links *all* the files downstream Rust builds need.
+        # cuda_cudart specifically ships as five outputs:
+        #   out    — metadata (small).
+        #   dev    — headers (cuda_runtime.h etc).
+        #   lib    — the dynamic libraries (libcudart.so.12*).
+        #   static — static archives (libcudart_static.a, libcudadevrt.a).
+        #   stubs  — driver-symbol stubs nvcc links against at build time
+        #            (actual symbols come from the driver at runtime).
+        # Without explicitly pulling lib + stubs, /petros/lib ends up with
+        # only static archives, and nvcc/cc-rs/find_cuda_helper all fail to
+        # locate libcudart. Listing "dev lib static stubs" covers every
+        # file kind a CUDA-aware Rust build (sppark, cust_raw, risc0-sys)
+        # needs during compile + link.
+        extraOutputsToInstall = [ "dev" "lib" "static" "stubs" ];
         paths = with pkgs; [
-          bash coreutils git cacert curl jq gnumake file
+          bash coreutils git cacert curl jq gnumake file perl
           clang lld llvmPackages.libclang.lib pkg-config protobuf go
           openssl openssl.dev zlib zlib.dev lz4 lz4.dev snappy zstd zstd.dev
           attic-client
@@ -107,17 +178,45 @@
           cosign
           crane
 
-          # Vendored Rust 1.89.0 toolchain.
-          rust_1_89.packages.stable.rustc
-          rust_1_89.packages.stable.cargo
+          # Vendored Rust 1.93.1 toolchain.
+          rust_1_93.packages.stable.rustc
+          rust_1_93.packages.stable.cargo
 
           # Vendored SP1.
           sp1_cli
           sp1_tc
+
+          # Vendored RISC Zero toolchain (no CLI; builds go through
+          # risc0-build invoked by a host crate's build.rs).
+          risc0_tc
+
           rustup_min
 
           # GnuPG without TPM support (avoids swtpm build failures).
           gnupg_notpm
+
+          # CUDA 12.9.1 — the three redistributable components risc0-sys +
+          # sppark actually need. Backported into the vendored nixpkgs (see
+          # src/nixpkgs/pkgs/development/cuda-modules/) because nixos-24.11
+          # shipped with CUDA 12.4 as the newest, and we need 12.9 specifically
+          # for native Blackwell-consumer (sm_120) support so RTX 5090 slaves
+          # can run risc0 CUDA proofs without PTX JIT. The 12.9.1 manifest
+          # JSONs were cherry-picked from nixpkgs master at commit d3802543
+          # (PR #405286). Bump in lockstep with risc0-zkvm only when that crate
+          # ships a newer sppark that supports CUDA 13+.
+          #
+          # We pull the individual components instead of the `cudatoolkit`
+          # meta-package on purpose: cudatoolkit drags in cuda_gdb, cuda_nsight,
+          # samples, and docs, which carry runtime deps (ncurses, tinfo, the
+          # full set of pythons, libcrypt) that petros's minimal build env
+          # doesn't satisfy and that we don't need for compiling proving
+          # kernels anyway.
+          #   cuda_nvcc   — compiler, ptxas, nvdisasm, related binaries
+          #   cuda_cudart — runtime library + headers (cuda_runtime.h etc)
+          #   cuda_cccl   — CUDA C++ Core Libraries template headers
+          cudaPackages_12_9.cuda_nvcc
+          cudaPackages_12_9.cuda_cudart
+          cudaPackages_12_9.cuda_cccl
         ];
       };
 

@@ -124,13 +124,23 @@ let
               ];
               "llvm/gnu-install-dirs.patch" = [
                 {
+                  after = "21";
+                  path = ../21;
+                }
+                {
                   after = "18";
+                  before = "21";
                   path = ../18;
                 }
               ];
               "llvm/gnu-install-dirs-polly.patch" = [
                 {
+                  after = "20";
+                  path = ../20;
+                }
+                {
                   after = "18";
+                  before = "20";
                   path = ../18;
                 }
                 {
@@ -296,8 +306,19 @@ let
               ];
               "libclc/use-default-paths.patch" = [
                 {
+                  after = "20";
+                  path = ../20;
+                }
+                {
                   after = "19";
+                  before = "20";
                   path = ../19;
+                }
+              ];
+              "libclc/gnu-install-dirs.patch" = [
+                {
+                  after = "21";
+                  path = ../21;
                 }
               ];
             };
@@ -1028,7 +1049,7 @@ let
           ./compiler-rt/armv6-no-ldrexd-strexd.patch
           (metadata.getVersionFile "compiler-rt/armv6-scudo-libatomic.patch")
         ]
-        ++ lib.optional (lib.versionAtLeast metadata.release_version "19") (fetchpatch {
+        ++ lib.optional (lib.versionAtLeast metadata.release_version "19" && lib.versionOlder metadata.release_version "21") (fetchpatch {
           url = "https://github.com/llvm/llvm-project/pull/99837/commits/14ae0a660a38e1feb151928a14f35ff0f4487351.patch";
           hash = "sha256-JykABCaNNhYhZQxCvKiBn54DZ5ZguksgCHnpdwWF2no=";
           relative = "compiler-rt";

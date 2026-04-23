@@ -197,9 +197,18 @@ filterAndCreateOverrides {
       postPatch =
         (prevAttrs.postPatch or "")
         + ''
+          # Rewrite nvcc.profile so nvcc finds nvvm after nixpkgs's postInstall
+          # moves it to a separate output. NVIDIA changed the path format
+          # between CUDA ≤ 12.4 and ≥ 12.9: older profiles indirect through the
+          # `$(_NVVM_BRANCH_)` variable; newer profiles hardcode `nvvm`
+          # directly. Accept both shapes with --replace-quiet so either one
+          # can be absent without aborting the build.
           substituteInPlace bin/nvcc.profile \
-            --replace-fail \
+            --replace-quiet \
               '$(TOP)/$(_NVVM_BRANCH_)' \
+              "''${!outputBin}/nvvm" \
+            --replace-quiet \
+              '$(TOP)/nvvm' \
               "''${!outputBin}/nvvm" \
             --replace-fail \
               '$(TOP)/$(_TARGET_DIR_)/include' \

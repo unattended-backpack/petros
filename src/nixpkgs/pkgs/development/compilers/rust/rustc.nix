@@ -37,9 +37,11 @@ in stdenv.mkDerivation (finalAttrs: {
     passthru.isReleaseTarball = true;
   };
 
-  hardeningDisable = optionals stdenv.cc.isClang [
-    # remove once https://github.com/NixOS/nixpkgs/issues/318674 is
-    # addressed properly
+  hardeningDisable = [
+    # Clang's -fzero-call-used-regs=used-gpr is not supported for wasm
+    # targets. Disable unconditionally since clang is always used for wasm
+    # even when the main stdenv CC is GCC.
+    # See https://github.com/NixOS/nixpkgs/issues/318674
     "zerocallusedregs"
   ];
 
@@ -75,6 +77,15 @@ in stdenv.mkDerivation (finalAttrs: {
     ++ optional (stdenv.hostPlatform.isDarwin && !withBundledLLVM) "-lc++ -lc++abi"
     ++ optional stdenv.hostPlatform.isFreeBSD "-rpath ${llvmPackages.libunwind}/lib"
     ++ optional stdenv.hostPlatform.isDarwin "-rpath ${llvmSharedForHost.lib}/lib");
+
+  # Ensure shared libraries are available at runtime during the build.
+  # The stage1 rustc and bootstrap tools dynamically link against these
+  # but may not have correct RPATH set in this vendored nixpkgs.
+  LD_LIBRARY_PATH = lib.makeLibraryPath (
+    [ xz zlib libffi ]
+    ++ lib.optional (!withBundledLLVM) llvmShared.lib
+    ++ lib.optional stdenv.hostPlatform.isLinux stdenv.cc.cc.lib
+  );
 
   # Increase codegen units to introduce parallelism within the compiler.
   RUSTFLAGS = "-Ccodegen-units=10";
@@ -138,7 +149,12 @@ in stdenv.mkDerivation (finalAttrs: {
     "${setBuild}.cc=${ccForBuild}"
     "${setHost}.cc=${ccForHost}"
     "${setTarget}.cc=${ccForTarget}"
-
+  ] ++ optionals (!fastCross && lib.versionAtLeast version "1.93") [
+    # Rust 1.93+ requires Clang to build C code for Wasm targets.
+    "--set=target.wasm32-unknown-unknown.cc=${llvmPackages.clang}/bin/clang"
+    "--set=target.wasm32-unknown-unknown.optimized-compiler-builtins=false"
+    "--set=target.wasm32-unknown-unknown.profiler=false"
+  ] ++ optionals (!fastCross) [
     "${setBuild}.linker=${ccForBuild}"
     "${setHost}.linker=${ccForHost}"
     "${setTarget}.linker=${ccForTarget}"

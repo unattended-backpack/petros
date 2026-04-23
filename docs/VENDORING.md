@@ -1,0 +1,94 @@
+# Bumping a Vendored Dependency
+
+Petros vendors four classes of external binary dependencies so that any historical commit can be rebuilt byte-identically against exactly the bytes it was tested with. Each vendored asset lives at two places:
+
+- A committed sha256 checksum file under `src/<kind>/<version>/` in this repository.
+- The matching tarball or binary at `${VENDOR_BASE_URL}/<kind>/<version>/` on the CDN.
+
+Pointers to which version of each is active live in [`.env.maintainer`](../.env.maintainer) as the `SP1_VERSION`, `RISC0_TOOLCHAIN_VERSION`, `ATTIC_VERSION`, and `NIX_VERSION` variables. Bumping any one of them follows the same general procedure documented below, with kind-specific notes after.
+
+## General Procedure
+
+1. **Obtain the new upstream artifact** from whoever publishes it. See the per-class notes below for where each one lives.
+2. **Compute its sha256**:
+   ```bash
+   sha256sum <file> > <file>.sha256
+   ```
+3. **Upload the artifact to the CDN** at the path layout this kind expects. The Dockerfile expects every vendored tarball to live at `${VENDOR_BASE_URL}/<kind>/<version>/<file>`.
+4. **Commit the checksum file** under `src/<kind>/<new-version>/<file>.sha256`. The tarball itself is not committed; only its sha256.
+5. **Bump the corresponding variable** in `.env.maintainer` to `<new-version>`.
+6. **Run `make build`** to verify the new version downloads, checksum-verifies, and integrates. You should end up with a working Petros image.
+
+Old entries under `src/<kind>/<old-version>/` can be left in place. They are not consumed at build time unless `.env.maintainer` is rolled back; keeping them around makes older Petros commits reproducible.
+
+## Per-Class Notes
+
+### `SP1_VERSION`
+
+Drives vendoring of two tarballs:
+
+- `cargo_prove_<SP1_VERSION>_linux_amd64.tar.gz` contains the `cargo-prove` CLI.
+- `rust-toolchain-x86_64-unknown-linux-gnu.tar.gz` contains the Succinct-custom Rust toolchain that `cargo-prove` dispatches to.
+
+Both ship as part of a matched Succinct SP1 release. Obtain them from the upstream release, compute sha256s, upload to `${VENDOR_BASE_URL}/sp1/<SP1_VERSION>/`, and commit both `.sha256` files under `src/sp1/<SP1_VERSION>/`.
+
+Bump this in lockstep with any downstream bump of `sp1-sdk` that requires a new Succinct Rust toolchain.
+
+### `RISC0_TOOLCHAIN_VERSION`
+
+Drives vendoring of one tarball:
+
+- `rust-toolchain-x86_64-unknown-linux-gnu.tar.gz` contains the RISC Zero custom Rust toolchain.
+
+`RISC0_TOOLCHAIN_VERSION` is the same string that `rzup` stamps into its on-disk layout at `$HOME/.risc0/toolchains/v<VERSION>-rust-<target>/` and that `risc0-build` looks for at guest build time. The Dockerfile reproduces that layout by symlinking into the extracted tarball; see the runtime stage of [`Dockerfile`](../Dockerfile).
+
+Obtain the tarball from the upstream RISC Zero toolchain release, upload to `${VENDOR_BASE_URL}/risc0/<RISC0_TOOLCHAIN_VERSION>/`, and commit the sha256 under `src/risc0/<RISC0_TOOLCHAIN_VERSION>/`.
+
+Bump this in lockstep with any downstream bump of `risc0-zkvm` that requires a new toolchain.
+
+### `ATTIC_VERSION`
+
+Drives vendoring of the attic-client + attic-server Nix closure tarball:
+
+- `attic-store.tar.gz` is the closure tarball.
+- `attic-client.outpath` is a text file containing the `/nix/store/...` path of the attic client binary inside the closure.
+- `attic-server.outpath` is the matching text file for the atticadm binary.
+
+Produce all three with `src/scripts/bootstrap-attic.sh`. See [`BOOTSTRAP.md`](./BOOTSTRAP.md) for the full procedure. Upload the closure tarball to `${VENDOR_BASE_URL}/attic/<ATTIC_VERSION>/attic-store.tar.gz`, then commit the sha256 and both `.outpath` files under `src/attic/<ATTIC_VERSION>/`.
+
+`<ATTIC_VERSION>` is conventionally the date suffix from the attic-client store path (for example, `unstable-2025-09-24`) so that the vendored closure tracks the upstream attic snapshot it was bootstrapped from.
+
+### `NIX_VERSION`
+
+Drives vendoring of the statically linked Nix binary:
+
+- `nix` is the static `nix` binary itself.
+
+Obtain the static release from the upstream Nix project or cross-compile it yourself. Upload to `${VENDOR_BASE_URL}/nix/<NIX_VERSION>/nix`, then commit the sha256 under `src/nix/<NIX_VERSION>/`.
+
+This rarely needs to change. Only bump when the embedded static Nix fails against a newer flake or store CLI shape that downstream consumers use.
+
+## Bumping CUDA Through the Vendored Nixpkgs
+
+Petros carries a small patch series on top of its vendored `nixos-24.11` nixpkgs snapshot so that a CUDA version newer than nixos-24.11's native 12.4 can be consumed from the flake. The current patch set backports CUDA 12.9.1 from nixpkgs `master`.
+
+The files touched are:
+
+- `src/nixpkgs/pkgs/development/cuda-modules/cuda/manifests/feature_<ver>.json` and the matching `redistrib_<ver>.json` contain the redistributable component URLs and sha256s nixpkgs fetches.
+- `src/nixpkgs/pkgs/development/cuda-modules/cuda/extension.nix` adds a short `<major>.<minor>` entry to `cudaVersionMap` pointing at the full `<major>.<minor>.<patch>` the manifests define.
+- `src/nixpkgs/pkgs/development/cuda-modules/cuda/overrides.nix` relaxes the `nvcc.profile` substitution to cover the new CUDA version's format.
+- `src/nixpkgs/pkgs/development/cuda-modules/nvcc-compatibilities.nix` adds an entry recording the maximum Clang and GCC versions the new CUDA version accepts as host compilers.
+- `src/nixpkgs/pkgs/top-level/all-packages.nix` exposes the new `cudaPackages_<major>_<minor>` attribute at the top level of the pkgs set.
+
+To bump to a future CUDA version (for example, when a downstream dependency supports CUDA 13):
+
+1. **Locate the upstream PR** that introduced the new version into nixpkgs `master`. The 12.9.1 backport originated from PR #405286, commit `d3802543`.
+2. **Cherry-pick the two manifest JSONs** into `src/nixpkgs/pkgs/development/cuda-modules/cuda/manifests/` verbatim. The manifests are self-contained and do not depend on the surrounding nixpkgs version.
+3. **Register the new `cudaVersionMap` entry** in `extension.nix`.
+4. **Register compiler compatibility** in `nvcc-compatibilities.nix` with the maximum Clang and GCC versions the new CUDA version accepts. These are documented in NVIDIA's release notes for the target version.
+5. **Broaden the `nvcc.profile` patch** in `overrides.nix` if NVIDIA restructured the profile file between versions. The existing patch uses `--replace-quiet` so both the old and new formats can be handled from the same file.
+6. **Expose the new package set** in `all-packages.nix` as `cudaPackages_<major>_<minor> = callPackage ./cuda-packages.nix { cudaVersion = "<major>.<minor>"; };`.
+7. **Update `flake.nix`** to pull the new `cudaPackages_<major>_<minor>.{cuda_nvcc,cuda_cudart,cuda_cccl}` components into the environment, replacing the previous set.
+8. **Rebuild and verify** with `make build`. The petros image should come out with the new `nvcc` on PATH and the new cudart library linked into downstream CUDA Rust builds.
+
+Only bump CUDA when a downstream CUDA-using dependency actually requires a newer version. Keeping CUDA as conservative as possible minimizes the image size and the surface of NVIDIA binaries shipped in Petros.

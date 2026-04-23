@@ -46,6 +46,7 @@ for binary in "$@"; do
                 echo "[test]   ✓ $binary ($version_output)"
             else
                 echo "[test]   ✗ $binary version check failed (tried --version and version)"
+                echo "[test]     last output: $version_output"
                 failed=$((failed + 1))
             fi
         fi

@@ -1,4 +1,4 @@
-{ lib, stdenv, makeWrapper, wrapRustc, bash, curl, darwin, zlib
+{ lib, stdenv, makeWrapper, wrapRustc, bash, curl, darwin, zlib, xz
 , autoPatchelfHook, gcc
 , version
 , src
@@ -37,6 +37,7 @@ rec {
     buildInputs = [ bash ]
       ++ lib.optional (!stdenv.hostPlatform.isDarwin && !stdenv.hostPlatform.isFreeBSD) gcc.cc.lib
       ++ lib.optional (!stdenv.hostPlatform.isDarwin) zlib
+      ++ lib.optional (!stdenv.hostPlatform.isDarwin) xz
       ++ lib.optional stdenv.hostPlatform.isDarwin Security;
 
     postPatch = ''
@@ -114,6 +115,7 @@ rec {
       ++ lib.optional (!stdenv.hostPlatform.isDarwin) autoPatchelfHook;
     buildInputs = [ bash ]
       ++ lib.optional (!stdenv.hostPlatform.isDarwin && !stdenv.hostPlatform.isFreeBSD) gcc.cc.lib
+      ++ lib.optional (!stdenv.hostPlatform.isDarwin) xz
       ++ lib.optional stdenv.hostPlatform.isDarwin Security;
 
     postPatch = ''
