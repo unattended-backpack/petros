@@ -3126,6 +3126,13 @@ with pkgs;
   cudaPackages_12_2 = callPackage ./cuda-packages.nix { cudaVersion = "12.2"; };
   cudaPackages_12_3 = callPackage ./cuda-packages.nix { cudaVersion = "12.3"; };
   cudaPackages_12_4 = callPackage ./cuda-packages.nix { cudaVersion = "12.4"; };
+  # CUDA 12.9.1 backported from nixpkgs master (PR #405286, commit d3802543).
+  # Provides native Blackwell-consumer (sm_120) support for RTX 50-series GPUs.
+  # Manifest JSONs under cuda-modules/cuda/manifests/ + extension.nix + the
+  # nvcc-compatibilities.nix entry complete the package definition. cudnn is
+  # NOT backported alongside (we don't use it here); if that becomes needed
+  # later, port cudnn_9.11+ from the same upstream PR.
+  cudaPackages_12_9 = callPackage ./cuda-packages.nix { cudaVersion = "12.9"; };
   cudaPackages_12 = cudaPackages_12_4; # Latest supported by cudnn
 
   cudaPackages = recurseIntoAttrs cudaPackages_12;
