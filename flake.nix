@@ -48,7 +48,7 @@
     # Install the SP1 CLI.
     sp1_cli = pkgs.stdenvNoCC.mkDerivation {
       pname = "sp1-cli";
-      version = "5.2.1";
+      version = "6.2.2";
       src = inputs."sp1-cli";
       nativeBuildInputs = [ pkgs.autoPatchelfHook ];
       buildInputs = [
@@ -83,7 +83,7 @@
     # Install the SP1 custom Rust toolchain with RISC-V target support.
     sp1_tc = pkgs.stdenvNoCC.mkDerivation {
       pname = "sp1-tc";
-      version = "succinct-1.88.0";
+      version = "succinct-1.93.0";
       src = inputs."sp1-tc";
       nativeBuildInputs = [ pkgs.autoPatchelfHook ];
       buildInputs = [
