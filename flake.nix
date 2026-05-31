@@ -17,6 +17,8 @@
   inputs.sp1-tc.flake = false;
   inputs.risc0-tc.url = "path:/build/src/risc0/risc0-tc";
   inputs.risc0-tc.flake = false;
+  inputs.risc0-cpp-tc.url = "path:/build/src/risc0/risc0-cpp-tc";
+  inputs.risc0-cpp-tc.flake = false;
 
   outputs = inputs@{ self, nixpkgs, ... }:
   let
@@ -125,6 +127,55 @@
       '';
     };
 
+    # Install the RISC Zero CPP cross-toolchain. The upstream tarball
+    # (`riscv32im-linux-x86_64.tar.xz`) expands to a top-level
+    # `riscv32im-linux-x86_64/` directory containing the riscv32im-unknown-elf
+    # gcc/g++ + binutils + sysroot. rzup looks for that nested directory
+    # under `$HOME/.risc0/toolchains/v<VER>-cpp-<TARGET>/` and the Dockerfile
+    # symlinks it across, so we preserve the inner directory verbatim in the
+    # `$out/opt/risc0-cpp/` install prefix. autoPatchelfHook fixes up the
+    # interpreter / RPATH of the host-side x86_64 binaries; the cross
+    # toolchain's riscv32im output stays untouched because it's not ELF-
+    # loadable on the host.
+    risc0_cpp_tc = pkgs.stdenvNoCC.mkDerivation {
+      pname = "risc0-cpp-tc";
+      version = "r0-cpp-2024.01.05";
+      src = inputs."risc0-cpp-tc";
+      nativeBuildInputs = [ pkgs.autoPatchelfHook ];
+      buildInputs = [
+        pkgs.glibc
+        pkgs.stdenv.cc.cc
+        pkgs.zlib
+        # GCC's multi-precision arithmetic libs: cc1 / cc1plus / lto1 /
+        # lto-dump dynamically link `libgmp.so.10`, `libmpfr.so.6`, and
+        # `libmpc.so.3`. Without these in buildInputs, autoPatchelfHook
+        # bails with "could not satisfy dependency".
+        pkgs.gmp
+        pkgs.mpfr
+        pkgs.libmpc
+      ];
+      dontStrip = true;
+
+      # Skip the default `patchShebangs` post-install pass. The vendored
+      # nixpkgs 24.11's `patch-shebangs.sh` crashes with `update: unbound
+      # variable` at line 121 when it traverses the cpp toolchain's
+      # nested `lib/gcc/...` and `riscv32-unknown-elf/` subtrees — a
+      # stdenv bug we shouldn't paper over by changing those subtrees.
+      # We don't run any in-tree scripts from the bundle anyway: the
+      # host-side binaries we care about are real ELFs (handled by
+      # autoPatchelfHook a phase earlier) and the target-side `.o` / `.a`
+      # files don't have shebangs by definition. The `risc0_tc` (rust
+      # toolchain) derivation doesn't hit this because its tarball has
+      # no nested cross subtree.
+      dontPatchShebangs = true;
+
+      installPhase = ''
+        set -euo pipefail
+        mkdir -p "$out/opt/risc0-cpp"
+        cp -r "$src"/* "$out/opt/risc0-cpp/"
+      '';
+    };
+
     # Install the minimal rustup binary.
     rustup_min = pkgs.runCommand "rustup-min" {} ''
       mkdir -p $out/bin
@@ -187,6 +238,16 @@
           # Vendored RISC Zero toolchain (no CLI; builds go through
           # risc0-build invoked by a host crate's build.rs).
           risc0_tc
+
+          # Vendored RISC Zero CPP cross-toolchain. risc0-zkvm's guest
+          # crate's build.rs cross-compiles its C/C++ syscall-stub layer
+          # into the guest ELF using the riscv32im-unknown-elf gcc/g++ from
+          # here. The Dockerfile symlinks /petros/opt/risc0-cpp into the
+          # rzup-compatible layout under $HOME/.risc0/toolchains/. This is
+          # the only zkVM C toolchain Petros ships: the SP1 guest is pure
+          # Rust (Sigil routes its crypto through k256 and keeps zstd
+          # host-only), so it needs no C cross-compiler.
+          risc0_cpp_tc
 
           rustup_min
 

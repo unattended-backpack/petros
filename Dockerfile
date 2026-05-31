@@ -48,6 +48,18 @@ RUN test -n "${RISC0_TOOLCHAIN_VERSION}" || ( \
   && exit 1)
 ENV RISC0_TOOLCHAIN_VERSION=${RISC0_TOOLCHAIN_VERSION}
 
+# RISC Zero CPP cross-toolchain version — matches the directory name rzup
+# uses under ~/.risc0/toolchains/v<VER>-cpp-<target>/, and the path on the
+# vendor CDN under ${VENDOR_BASE_URL}/risc0/cpp/${RISC0_CPP_TOOLCHAIN_VERSION}/.
+# Provides the riscv32im-unknown-elf gcc/g++ cross-toolchain that the
+# risc0-zkvm guest crate's build.rs uses to compile its C/C++ syscall-stub
+# layer into the guest ELF.
+ARG RISC0_CPP_TOOLCHAIN_VERSION
+RUN test -n "${RISC0_CPP_TOOLCHAIN_VERSION}" || ( \
+  echo "ERROR: RISC0_CPP_TOOLCHAIN_VERSION build argument is required!" >&2 \
+  && exit 1)
+ENV RISC0_CPP_TOOLCHAIN_VERSION=${RISC0_CPP_TOOLCHAIN_VERSION}
+
 # Upstream attic snapshot tag (from the `attic-*.outpath` nix store path
 # suffix). Pins the attic-store closure + its two .outpath files.
 ARG ATTIC_VERSION
@@ -118,6 +130,7 @@ COPY src/nix/${NIX_VERSION}/ /tmp/nix/
 COPY src/attic/${ATTIC_VERSION}/ /tmp/attic/
 COPY src/sp1/${SP1_VERSION}/ /tmp/sp1/
 COPY src/risc0/${RISC0_TOOLCHAIN_VERSION}/ /tmp/risc0/
+COPY src/risc0/cpp/${RISC0_CPP_TOOLCHAIN_VERSION}/ /tmp/risc0-cpp/
 RUN /build/src/scripts/vendor.sh
 
 # Install static Nix.
@@ -170,6 +183,16 @@ RUN mkdir -p /build/src/risc0/risc0-tc && \
   rm -rf /tmp/risc0/rust-toolchain-x86_64-unknown-linux-gnu.tar.gz \
          /tmp/risc0/rust-toolchain-x86_64-unknown-linux-gnu.tar.gz.sha256
 
+# Extract vendored RISC Zero CPP cross-toolchain to the path flake.nix points
+# at. The xz-compressed tarball expands to a top-level `riscv32im-linux-x86_64/`
+# directory that rzup itself preserves (paths.rs notes "C++ archive has a
+# child directory we want to ignore" — we keep it for parity with rzup).
+RUN mkdir -p /build/src/risc0/risc0-cpp-tc && \
+  tar -xJf /tmp/risc0-cpp/riscv32im-linux-x86_64.tar.xz \
+    -C /build/src/risc0/risc0-cpp-tc/ && \
+  rm -rf /tmp/risc0-cpp/riscv32im-linux-x86_64.tar.xz \
+         /tmp/risc0-cpp/riscv32im-linux-x86_64.tar.xz.sha256
+
 # Register our vendored nixpkgs as the default
 RUN nix registry add nixpkgs path:/nixpkgs
 RUN nix flake metadata .
@@ -191,14 +214,20 @@ RUN /build/src/scripts/export.sh path:/build#petros
 # with Nix removed.
 FROM alpine:3.20@sha256:765942a4039992336de8dd5db680586e1a206607dd06170ff0a37267a9e01958 AS petros
 
-# Re-declare build-arg we need in the runtime stage — ARGs don't carry across
-# stages. The rzup layout setup below interpolates this into the toolchain
-# directory name rzup expects.
+# Re-declare build-args we need in the runtime stage — ARGs don't carry across
+# stages. The rzup layout setup below interpolates these into the toolchain
+# directory names rzup expects.
 ARG RISC0_TOOLCHAIN_VERSION
 RUN test -n "${RISC0_TOOLCHAIN_VERSION}" || ( \
   echo "ERROR: RISC0_TOOLCHAIN_VERSION build argument is required!" >&2 \
   && exit 1)
 ENV RISC0_TOOLCHAIN_VERSION=${RISC0_TOOLCHAIN_VERSION}
+
+ARG RISC0_CPP_TOOLCHAIN_VERSION
+RUN test -n "${RISC0_CPP_TOOLCHAIN_VERSION}" || ( \
+  echo "ERROR: RISC0_CPP_TOOLCHAIN_VERSION build argument is required!" >&2 \
+  && exit 1)
+ENV RISC0_CPP_TOOLCHAIN_VERSION=${RISC0_CPP_TOOLCHAIN_VERSION}
 
 # OCI image labels for metadata and documentation.
 LABEL org.opencontainers.image.title="Petros"
@@ -296,8 +325,46 @@ RUN set -eux; \
   mkdir -p "$TC_DIR"; \
   ln -s /petros/opt/risc0/bin "$TC_DIR/bin"; \
   ln -s /petros/opt/risc0/lib "$TC_DIR/lib"; \
-  : > "$HOME/.risc0/.rzup"; \
-  printf '[default_versions]\nrust = "%s"\n' "$RISC0_TOOLCHAIN_VERSION" \
+  : > "$HOME/.risc0/.rzup"
+
+# Expose the RISC Zero CPP cross-toolchain in the rzup-compatible layout.
+# Mirror of the rust block above. rzup's CppToolchain resolver (paths.rs)
+# wants $HOME/.risc0/toolchains/v<VER>-cpp-<TARGET>/, and notes that "the
+# C++ archive has a child directory we want to ignore" — i.e. the inner
+# `riscv32im-linux-x86_64/` dir produced by the upstream tarball.
+#
+# Two rzup gotchas to handle here:
+#
+# 1. The version-dir filename uses the *normalized* YYYY.M.D form (leading
+#    zeros stripped from month and day), e.g. `v2024.1.5-cpp-...`, not
+#    `v2024.01.05-cpp-...`. rzup's `parse_cpp_version` normalises on
+#    install and `find_version_dir_inner` matches against the normalised
+#    form on resolve. We awk-strip leading zeros from the env var and
+#    use the result for both the directory name and the settings.toml
+#    entry.
+#
+# 2. Same rzup-doesn't-follow-symlinks gotcha as the rust block, applied
+#    at BOTH levels: both `v<VER>-cpp-<TARGET>/` AND the inner
+#    `riscv32im-linux-x86_64/` MUST be real `mkdir`'d directories.
+#    rzup's `find_version_dir_inner` filters out symlinked entries at
+#    every descent, not just the top level. We mkdir both and only
+#    symlink the leaf contents (bin/lib/libexec/...) pointing back at
+#    /petros/opt/.
+#
+# Combines the rust-side settings.toml write (rust default version) and
+# the cpp-side one into a single RUN so CPP_VER_NORM only has to be
+# computed once.
+RUN set -eux; \
+  CPP_VER_NORM=$(echo "$RISC0_CPP_TOOLCHAIN_VERSION" \
+    | awk -F. '{printf "%d.%d.%d", $1, $2, $3}'); \
+  CPP_DIR="$HOME/.risc0/toolchains/v${CPP_VER_NORM}-cpp-x86_64-unknown-linux-gnu"; \
+  INNER="$CPP_DIR/riscv32im-linux-x86_64"; \
+  mkdir -p "$INNER"; \
+  for entry in /petros/opt/risc0-cpp/riscv32im-linux-x86_64/*; do \
+    ln -s "$entry" "$INNER/$(basename "$entry")"; \
+  done; \
+  printf '[default_versions]\nrust = "%s"\ncpp = "%s"\n' \
+    "$RISC0_TOOLCHAIN_VERSION" "$CPP_VER_NORM" \
     > "$HOME/.risc0/settings.toml"
 
 # Prepare wrapper scripts and shim for managing Rust toolchains. The wrappers

@@ -17,6 +17,7 @@ ATTIC_PUBLIC_KEY ?=
 VENDOR_BASE_URL ?=
 SP1_VERSION ?=
 RISC0_TOOLCHAIN_VERSION ?=
+RISC0_CPP_TOOLCHAIN_VERSION ?=
 ATTIC_VERSION ?=
 NIX_VERSION ?=
 ATTIC_TOKEN_FILE ?= attic_token
@@ -61,6 +62,10 @@ build:
 		echo "ERROR: RISC0_TOOLCHAIN_VERSION not set (check .env.maintainer)" >&2; \
 		exit 1; \
 	fi
+	@if [ -z "$(RISC0_CPP_TOOLCHAIN_VERSION)" ]; then \
+		echo "ERROR: RISC0_CPP_TOOLCHAIN_VERSION not set (check .env.maintainer)" >&2; \
+		exit 1; \
+	fi
 	@if [ -z "$(ATTIC_VERSION)" ]; then \
 		echo "ERROR: ATTIC_VERSION not set (check .env.maintainer)" >&2; \
 		exit 1; \
@@ -85,6 +90,7 @@ build:
 		--build-arg VENDOR_BASE_URL=$(VENDOR_BASE_URL) \
 		--build-arg SP1_VERSION=$(SP1_VERSION) \
 		--build-arg RISC0_TOOLCHAIN_VERSION=$(RISC0_TOOLCHAIN_VERSION) \
+		--build-arg RISC0_CPP_TOOLCHAIN_VERSION=$(RISC0_CPP_TOOLCHAIN_VERSION) \
 		--build-arg ATTIC_VERSION=$(ATTIC_VERSION) \
 		--build-arg NIX_VERSION=$(NIX_VERSION) \
 		--build-arg ATTIC_CACHE_BUST=$(ATTIC_CACHE_BUST) \

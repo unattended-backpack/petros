@@ -107,4 +107,14 @@ fi
 download_and_verify "rust-toolchain-x86_64-unknown-linux-gnu.tar.gz" \
   "/tmp/risc0" "risc0/${RISC0_TOOLCHAIN_VERSION}/"
 
+# RISC Zero CPP cross-toolchain — ${VENDOR_BASE_URL}/risc0/cpp/${RISC0_CPP_TOOLCHAIN_VERSION}/...
+# riscv32im-unknown-elf gcc/g++ for cross-compiling the risc0-zkvm guest
+# crate's C/C++ syscall-stub layer.
+if [ -z "${RISC0_CPP_TOOLCHAIN_VERSION:-}" ]; then
+  log "ERROR: RISC0_CPP_TOOLCHAIN_VERSION is required for vendoring RISC Zero CPP toolchain"
+  exit 1
+fi
+download_and_verify "riscv32im-linux-x86_64.tar.xz" \
+  "/tmp/risc0-cpp" "risc0/cpp/${RISC0_CPP_TOOLCHAIN_VERSION}/"
+
 log "All vendored dependencies downloaded and verified!"
