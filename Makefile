@@ -74,6 +74,18 @@ build:
 		echo "ERROR: NIX_VERSION not set (check .env.maintainer)" >&2; \
 		exit 1; \
 	fi
+	@if [ -z "$(CIRCOM_VERSION)" ]; then \
+		echo "ERROR: CIRCOM_VERSION not set (check .env.maintainer)" >&2; \
+		exit 1; \
+	fi
+	@if [ -z "$(SNARKJS_VERSION)" ]; then \
+		echo "ERROR: SNARKJS_VERSION not set (check .env.maintainer)" >&2; \
+		exit 1; \
+	fi
+	@if [ -z "$(R0_GROTH16_VERSION)" ]; then \
+		echo "ERROR: R0_GROTH16_VERSION not set (check .env.maintainer)" >&2; \
+		exit 1; \
+	fi
 	@if [ ! -f "$(ATTIC_TOKEN_FILE)" ]; then \
 		echo "ERROR: Token file '$(ATTIC_TOKEN_FILE)' not found" >&2; \
 		exit 1; \
@@ -93,6 +105,9 @@ build:
 		--build-arg RISC0_CPP_TOOLCHAIN_VERSION=$(RISC0_CPP_TOOLCHAIN_VERSION) \
 		--build-arg ATTIC_VERSION=$(ATTIC_VERSION) \
 		--build-arg NIX_VERSION=$(NIX_VERSION) \
+		--build-arg CIRCOM_VERSION=$(CIRCOM_VERSION) \
+		--build-arg SNARKJS_VERSION=$(SNARKJS_VERSION) \
+		--build-arg R0_GROTH16_VERSION=$(R0_GROTH16_VERSION) \
 		--build-arg ATTIC_CACHE_BUST=$(ATTIC_CACHE_BUST) \
 		--secret id=attic_token,src=$(ATTIC_TOKEN_SOURCE) \
 		-t $(IMAGE_NAME):$(IMAGE_TAG) \

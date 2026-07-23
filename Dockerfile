@@ -75,6 +75,29 @@ RUN test -n "${NIX_VERSION}" || ( \
   && exit 1)
 ENV NIX_VERSION=${NIX_VERSION}
 
+# circom version — binary at ${VENDOR_BASE_URL}/circom/${CIRCOM_VERSION}/circom.
+ARG CIRCOM_VERSION
+RUN test -n "${CIRCOM_VERSION}" || ( \
+  echo "ERROR: CIRCOM_VERSION build argument is required!" >&2 \
+  && exit 1)
+ENV CIRCOM_VERSION=${CIRCOM_VERSION}
+
+# snarkjs version — node_modules tarball at
+# ${VENDOR_BASE_URL}/snarkjs/${SNARKJS_VERSION}/snarkjs-node-modules.tar.gz.
+ARG SNARKJS_VERSION
+RUN test -n "${SNARKJS_VERSION}" || ( \
+  echo "ERROR: SNARKJS_VERSION build argument is required!" >&2 \
+  && exit 1)
+ENV SNARKJS_VERSION=${SNARKJS_VERSION}
+
+# RISC Zero Groth16 ceremony artifacts — ptau, zkey, circom sources, and
+# control_id.rs at ${VENDOR_BASE_URL}/risc0/groth16/${R0_GROTH16_VERSION}/...
+ARG R0_GROTH16_VERSION
+RUN test -n "${R0_GROTH16_VERSION}" || ( \
+  echo "ERROR: R0_GROTH16_VERSION build argument is required!" >&2 \
+  && exit 1)
+ENV R0_GROTH16_VERSION=${R0_GROTH16_VERSION}
+
 # Validate that our `attic_token` secret is mounted.
 RUN --mount=type=secret,id=attic_token \
   test -f /run/secrets/attic_token || ( \
@@ -123,14 +146,17 @@ RUN cd /tmp && sha256sum -c curl.sha256 || ( \
   && rm /tmp/curl.sha256
 
 # Download vendored dependencies from self-hosted source. Each asset's
-# versioned subdir is COPYd into a matching /tmp/<asset>/ subdir so vendor.sh
-# can place the two same-named rust-toolchain tarballs (SP1 + RISC Zero) and
-# the two same-named sha256 scopes (nix + attic) without collision.
+# versioned subdir is COPYd into a matching /tmp/<asset>/ subdir (bringing its
+# committed .sha256) so vendor.sh can download + checksum the bytes from the CDN.
 COPY src/nix/${NIX_VERSION}/ /tmp/nix/
 COPY src/attic/${ATTIC_VERSION}/ /tmp/attic/
 COPY src/sp1/${SP1_VERSION}/ /tmp/sp1/
 COPY src/risc0/${RISC0_TOOLCHAIN_VERSION}/ /tmp/risc0/
 COPY src/risc0/cpp/${RISC0_CPP_TOOLCHAIN_VERSION}/ /tmp/risc0-cpp/
+COPY src/snarkjs/${SNARKJS_VERSION}/ /tmp/snarkjs/
+COPY src/risc0/groth16/${R0_GROTH16_VERSION}/ /tmp/risc0-groth16/
+COPY src/circom/${CIRCOM_VERSION}/ /tmp/circom/
+COPY src/sp1/ignition/ /tmp/ignition/
 RUN /build/src/scripts/vendor.sh
 
 # Install static Nix.
@@ -176,6 +202,12 @@ RUN mkdir -p /build/src/sp1/sp1-tc && \
   rm -rf /tmp/sp1/rust-toolchain-x86_64-unknown-linux-gnu.tar.gz \
          /tmp/sp1/rust-toolchain-x86_64-unknown-linux-gnu.tar.gz.sha256
 
+# Place the SP1 PLONK VK (no extraction) at its flake input path, then drop the
+# rest of /tmp/sp1 (the leftover .sha256).
+RUN mkdir -p /build/src/sp1/plonk-vk && \
+  mv /tmp/sp1/plonk_vk.bin /build/src/sp1/plonk-vk/plonk_vk.bin && \
+  rm -rf /tmp/sp1
+
 # Extract vendored RISC Zero toolchain to the path flake.nix points at.
 RUN mkdir -p /build/src/risc0/risc0-tc && \
   tar -xzf /tmp/risc0/rust-toolchain-x86_64-unknown-linux-gnu.tar.gz \
@@ -192,6 +224,29 @@ RUN mkdir -p /build/src/risc0/risc0-cpp-tc && \
     -C /build/src/risc0/risc0-cpp-tc/ && \
   rm -rf /tmp/risc0-cpp/riscv32im-linux-x86_64.tar.xz \
          /tmp/risc0-cpp/riscv32im-linux-x86_64.tar.xz.sha256
+
+# Extract the vendored snarkjs node_modules to the snarkjs flake input path.
+RUN mkdir -p /build/src/snarkjs && \
+  tar -xzf /tmp/snarkjs/snarkjs-node-modules.tar.gz \
+    -C /build/src/snarkjs/ && \
+  rm -rf /tmp/snarkjs
+
+# Place the verified RISC Zero Groth16 ceremony artifacts (no extraction;
+# ptau/zkey/circom-sources/control_id.rs) at the risc0-groth16 flake input
+# path, dropping the .sha256 sidecars so only the data remains.
+RUN mkdir -p /build/src/risc0-groth16 && \
+  cp /tmp/risc0-groth16/* /build/src/risc0-groth16/ && \
+  rm -f /build/src/risc0-groth16/*.sha256 && \
+  rm -rf /tmp/risc0-groth16
+
+# Place the verified circom binary (autopatchelf'd by the flake) and the SP1
+# Ignition bundle at their flake input paths.
+RUN mkdir -p /build/src/circom && \
+  mv /tmp/circom/circom /build/src/circom/circom && \
+  rm -rf /tmp/circom
+RUN mkdir -p /build/src/ignition && \
+  mv /tmp/ignition/ignition-points.bin /build/src/ignition/ignition-points.bin && \
+  rm -rf /tmp/ignition
 
 # Register our vendored nixpkgs as the default
 RUN nix registry add nixpkgs path:/nixpkgs
@@ -290,7 +345,8 @@ USER 10001:10001
 # Test that all expected binaries are working.
 COPY src/scripts/test.sh /home/petros/test.sh
 RUN sh /home/petros/test.sh bash ls cat echo openssl curl jq gpg \
-  pkg-config rustc cargo node docker doctl cosign crane make file protoc go clang perl && \
+  pkg-config rustc cargo node docker doctl cosign crane make file protoc go clang perl \
+  circom snarkjs && \
   rm /home/petros/test.sh
 RUN which cargo-prove
 RUN cargo prove --version

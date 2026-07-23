@@ -15,10 +15,23 @@
   inputs.sp1-cli.flake = false;
   inputs.sp1-tc.url = "path:/build/src/sp1/sp1-tc";
   inputs.sp1-tc.flake = false;
+  inputs.sp1-plonk-vk.url = "path:/build/src/sp1/plonk-vk";
+  inputs.sp1-plonk-vk.flake = false;
   inputs.risc0-tc.url = "path:/build/src/risc0/risc0-tc";
   inputs.risc0-tc.flake = false;
   inputs.risc0-cpp-tc.url = "path:/build/src/risc0/risc0-cpp-tc";
   inputs.risc0-cpp-tc.flake = false;
+
+  # Verification tooling + ceremony artifacts (consumed by the unified
+  # trusted-setup verification, `make verify-trusted-setup` downstream).
+  inputs.circom.url = "path:/build/src/circom";
+  inputs.circom.flake = false;
+  inputs.snarkjs.url = "path:/build/src/snarkjs";
+  inputs.snarkjs.flake = false;
+  inputs.risc0-groth16.url = "path:/build/src/risc0-groth16";
+  inputs.risc0-groth16.flake = false;
+  inputs.ignition.url = "path:/build/src/ignition";
+  inputs.ignition.flake = false;
 
   outputs = inputs@{ self, nixpkgs, ... }:
   let
@@ -176,6 +189,73 @@
       '';
     };
 
+    # circom 2.2.2 — pinned because the r1cs hash the RISC Zero Groth16 ceremony
+    # check reproduces is circom-version-sensitive (nixos-24.11 ships 2.2.0). The
+    # vendored upstream release binary is dynamically linked glibc, so
+    # autoPatchelfHook fixes its interpreter + RPATH like the SP1/RISC Zero CLIs.
+    circom = pkgs.stdenvNoCC.mkDerivation {
+      pname = "circom";
+      version = "2.2.2";
+      src = inputs."circom";
+      nativeBuildInputs = [ pkgs.autoPatchelfHook ];
+      buildInputs = [ pkgs.glibc pkgs.stdenv.cc.cc ];
+      dontStrip = true;
+      installPhase = ''
+        set -euo pipefail
+        mkdir -p "$out/bin"
+        install -m755 "$src/circom" "$out/bin/circom"
+      '';
+    };
+
+    # snarkjs 0.7.6 — pure JS, run through the vendored nodejs. We ship the
+    # exact node_modules closure (vendored tarball) and a thin wrapper so
+    # `snarkjs` is on PATH. Symlinks keep the wrapper derivation tiny; the
+    # node_modules bytes live once in the input's store path.
+    snarkjs = pkgs.runCommand "snarkjs" { } ''
+      set -euo pipefail
+      mkdir -p "$out/bin"
+      ln -s "${inputs."snarkjs"}/node_modules" "$out/node_modules"
+      # snarkjs has no --version/version of its own (it answers "Invalid
+      # command" and exits non-zero), so the wrapper supplies one from the
+      # vendored package.json. Keeps it well-behaved for the smoke test.
+      # printf (not an indented heredoc) so the shebang lands at column 0.
+      ver=$(${pkgs.jq}/bin/jq -r .version \
+        "${inputs."snarkjs"}/node_modules/snarkjs/package.json")
+      printf '#!/bin/sh\ncase "$1" in --version|-v|version) echo "snarkjs@%s"; exit 0 ;; esac\n' \
+        "$ver" > "$out/bin/snarkjs"
+      printf 'exec %s/bin/node %s/node_modules/snarkjs/build/cli.cjs "$@"\n' \
+        "${pkgs.nodejs}" "$out" >> "$out/bin/snarkjs"
+      chmod +x "$out/bin/snarkjs"
+    '';
+
+    # RISC Zero Groth16 ceremony artifacts (ptau, zkey, circom sources,
+    # control_id.rs) that the verification reads. Data, not executables, so we
+    # park them under share/. Symlinks into the input store path so this
+    # derivation stays a few KB and the ~13 GB lives once in the input.
+    risc0_groth16_artifacts = pkgs.runCommand "risc0-groth16-artifacts" { } ''
+      set -euo pipefail
+      mkdir -p "$out/share/risc0-groth16"
+      for f in ${inputs."risc0-groth16"}/*; do
+        ln -s "$f" "$out/share/risc0-groth16/$(basename "$f")"
+      done
+    '';
+
+    # SP1 PLONK Aztec Ignition offline bundle (the ~28 KB of first-power points +
+    # pubkeys the chain check consumes, so the verification needs no S3 fetch).
+    ignition_bundle = pkgs.runCommand "ignition-bundle" { } ''
+      set -euo pipefail
+      mkdir -p "$out/share/ignition"
+      ln -s "${inputs."ignition"}/ignition-points.bin" "$out/share/ignition/ignition-points.bin"
+    '';
+
+    # SP1 PLONK verification key (from sp1-verifier 6.2.2). sha256(plonk_vk.bin)
+    # is the on-chain SP1VerifierPlonk VERIFIER_HASH the verification recomputes.
+    sp1_plonk_vk = pkgs.runCommand "sp1-plonk-vk" { } ''
+      set -euo pipefail
+      mkdir -p "$out/share/sp1"
+      ln -s "${inputs."sp1-plonk-vk"}/plonk_vk.bin" "$out/share/sp1/plonk_vk.bin"
+    '';
+
     # Install the minimal rustup binary.
     rustup_min = pkgs.runCommand "rustup-min" {} ''
       mkdir -p $out/bin
@@ -216,7 +296,7 @@
         # needs during compile + link.
         extraOutputsToInstall = [ "dev" "lib" "static" "stubs" ];
         paths = with pkgs; [
-          bash coreutils git cacert curl jq gnumake file perl
+          bash coreutils git cacert curl jq gnumake m4 file perl
           clang lld llvmPackages.libclang.lib pkg-config protobuf go
           openssl openssl.dev zlib zlib.dev lz4 lz4.dev snappy zstd zstd.dev
           attic-client
@@ -248,6 +328,15 @@
           # Rust (Sigil routes its crypto through k256 and keeps zstd
           # host-only), so it needs no C cross-compiler.
           risc0_cpp_tc
+
+          # Trusted-setup verification: pinned circom + snarkjs tooling and the
+          # RISC Zero Groth16 ceremony artifacts, all consumed offline by
+          # `make verify-trusted-setup` downstream (no runtime downloads).
+          circom
+          snarkjs
+          risc0_groth16_artifacts
+          ignition_bundle
+          sp1_plonk_vk
 
           rustup_min
 

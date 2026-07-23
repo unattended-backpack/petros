@@ -98,6 +98,9 @@ download_and_verify "cargo_prove_${SP1_VERSION}_linux_amd64.tar.gz" \
   "/tmp/sp1" "sp1/${SP1_VERSION}/"
 download_and_verify "rust-toolchain-x86_64-unknown-linux-gnu.tar.gz" \
   "/tmp/sp1" "sp1/${SP1_VERSION}/"
+# SP1 PLONK verification key (from the sp1-verifier crate); sha256(plonk_vk.bin)
+# is the on-chain SP1VerifierPlonk VERIFIER_HASH the verification confirms.
+download_and_verify "plonk_vk.bin" "/tmp/sp1" "sp1/${SP1_VERSION}/"
 
 # RISC Zero vendor assets — ${VENDOR_BASE_URL}/risc0/${RISC0_TOOLCHAIN_VERSION}/...
 if [ -z "${RISC0_TOOLCHAIN_VERSION:-}" ]; then
@@ -116,5 +119,38 @@ if [ -z "${RISC0_CPP_TOOLCHAIN_VERSION:-}" ]; then
 fi
 download_and_verify "riscv32im-linux-x86_64.tar.xz" \
   "/tmp/risc0-cpp" "risc0/cpp/${RISC0_CPP_TOOLCHAIN_VERSION}/"
+
+# snarkjs node_modules — ${VENDOR_BASE_URL}/snarkjs/${SNARKJS_VERSION}/...
+if [ -z "${SNARKJS_VERSION:-}" ]; then
+  log "ERROR: SNARKJS_VERSION is required for vendoring snarkjs"
+  exit 1
+fi
+download_and_verify "snarkjs-node-modules.tar.gz" \
+  "/tmp/snarkjs" "snarkjs/${SNARKJS_VERSION}/"
+
+# RISC Zero Groth16 ceremony artifacts —
+# ${VENDOR_BASE_URL}/risc0/groth16/${R0_GROTH16_VERSION}/...
+# The verification reproduces the r1cs from the circom sources, then
+# snarkjs-verifies the 238-contribution chain against the ptau + zkey, and
+# greps control_id.rs for the official control root.
+if [ -z "${R0_GROTH16_VERSION:-}" ]; then
+  log "ERROR: R0_GROTH16_VERSION is required for vendoring RISC Zero Groth16 artifacts"
+  exit 1
+fi
+for f in powersOfTau28_hez_final_23.ptau stark_verify_final.zkey \
+         stark_verify.circom risc0.circom control_id.rs; do
+  download_and_verify "$f" "/tmp/risc0-groth16" "risc0/groth16/${R0_GROTH16_VERSION}/"
+done
+
+# circom binary — ${VENDOR_BASE_URL}/circom/${CIRCOM_VERSION}/circom
+if [ -z "${CIRCOM_VERSION:-}" ]; then
+  log "ERROR: CIRCOM_VERSION is required for vendoring circom"
+  exit 1
+fi
+download_and_verify "circom" "/tmp/circom" "circom/${CIRCOM_VERSION}/"
+
+# SP1 Aztec Ignition consumed-points bundle —
+# ${VENDOR_BASE_URL}/sp1/ignition/ignition-points.bin
+download_and_verify "ignition-points.bin" "/tmp/ignition" "sp1/ignition/"
 
 log "All vendored dependencies downloaded and verified!"
