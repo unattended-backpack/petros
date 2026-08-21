@@ -1,0 +1,17 @@
+[package]
+name = "verifier-pin-tool"
+description = "Emits the OpenVM EVM verifier contracts from a pre-generated halo2 proving key, skipping the in-process keygen. Built and run inside a petros container by generate-openvm-verifier-pin.sh; see docs/OPENVM_TRUSTED_SETUP.md."
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+openvm-sdk = { git = "https://github.com/openvm-org/openvm.git", tag = "v2.0.1", features = [
+  "evm-prove",
+  "evm-verify",
+] }
+eyre = "0.6"
+hex = "0.4"
+serde_json = "1"
+tempfile = "3"

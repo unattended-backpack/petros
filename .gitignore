@@ -1,4 +1,4 @@
-/target
+target/
 **/*.rs.bk
 *.pdb
 .env
@@ -6,3 +6,15 @@
 .secrets
 .act-secrets/
 .attic_admin_token
+
+# Vendored verification assets: only the .sha256 is committed; the bytes are
+# uploaded to the CDN, mirroring the attic/sp1/risc0 vendored kinds.
+src/risc0/groth16/**/*.ptau
+src/risc0/groth16/**/*.zkey
+src/risc0/groth16/**/*.circom
+src/risc0/groth16/**/*.rs
+src/snarkjs/**/*.tar.gz
+src/circom/*/circom
+src/sp1/**/*.bin
+src/openvm/**/*.tar.gz
+src/openvm/kzg/**/*.srs

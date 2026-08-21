@@ -11,12 +11,17 @@ log() {
 }
 
 # Push store paths to attic if we have write permission.
-# Falls back to individual pushes if batch push fails.
-# Args: $@ - store paths to push
+# Falls back to individual pushes if batch push fails. Counts offered
+# and failed paths so the end-of-run summary can surface silent push
+# holes without changing the tolerant warn-and-continue behavior.
+# Args: the store paths to push.
+PUSH_OFFERED=0
+PUSH_FAILED=0
 push_to_attic() {
     if [ "$HAS_WRITE_PERMISSION" != true ]; then
         return 0
     fi
+    PUSH_OFFERED=$((PUSH_OFFERED + $#))
 
     if attic push "remote:${ATTIC_CACHE}" "$@" 2>&1; then
         return 0
@@ -25,9 +30,30 @@ push_to_attic() {
     # Batch push failed, try individually.
     log "WARNING: Batch push failed, retrying individually..."
     for path in "$@"; do
-        attic push "remote:${ATTIC_CACHE}" "$path" 2>&1 || \
+        attic push "remote:${ATTIC_CACHE}" "$path" 2>&1 || {
+            PUSH_FAILED=$((PUSH_FAILED + 1))
             log "Failed to push: $path"
+        }
     done
+}
+
+# Sign a realized closure with the mirror key and copy it into the
+# local NAR mirror so the next layer-invalidated run substitutes it
+# from disk instead of the network. nix copy is incremental; paths the
+# mirror already holds cost a presence check, not a transfer. Signing
+# touches store-DB metadata only (no NAR reads) and is idempotent.
+# Mirror failures never fail the build; the next run just refills from
+# attic. Args: the store paths whose closures to mirror.
+mirror_closure() {
+    if [ -z "$NIX_MIRROR" ]; then
+        return 0
+    fi
+    nix store sign --key-file "$MIRROR_KEY" --recursive "$@" || {
+        log "WARNING: mirror signing failed; skipping mirror copy"
+        return 0
+    }
+    nix copy --to "file://${NIX_MIRROR}?compression=zstd" "$@" || \
+        log "WARNING: mirror copy failed; next run refills from attic"
 }
 
 # Validate required environment variables.
@@ -103,6 +129,37 @@ else
     fi
 fi
 
+# Configure the local NAR mirror (BuildKit cache mount, see the
+# Dockerfile). It is listed ahead of attic (priority=10) so a re-run
+# after a layer invalidation refills the fresh store from local disk;
+# attic still serves whatever the mirror lacks and remains the source
+# of truth. Attic-substituted paths carry attic's signature into the
+# mirror; locally built paths do not, so the mirror keeps a signing
+# key of its own and require-sigs stays fully on. An absent or empty
+# mirror (CI's pristine BUILD_CACHE_ID) degrades to attic-only
+# behavior.
+if [ -n "${NIX_MIRROR:-}" ] && [ -d "$NIX_MIRROR" ]; then
+    # A bare directory is not yet a valid binary cache; seed the
+    # nix-cache-info marker so nix accepts it as a substituter on the
+    # very first run.
+    if [ ! -f "$NIX_MIRROR/nix-cache-info" ]; then
+        printf 'StoreDir: /nix/store\n' > "$NIX_MIRROR/nix-cache-info"
+    fi
+    MIRROR_KEY="$NIX_MIRROR/signing.sec"
+    if [ ! -f "$MIRROR_KEY" ]; then
+        log "Generating mirror signing key..."
+        nix key generate-secret --key-name petros-mirror-1 \
+            > "$MIRROR_KEY"
+    fi
+    MIRROR_PUB=$(nix key convert-secret-to-public < "$MIRROR_KEY")
+    export NIX_CONFIG="extra-substituters = file://${NIX_MIRROR}?priority=10
+extra-trusted-public-keys = ${MIRROR_PUB}"
+    log "NAR mirror enabled: $NIX_MIRROR ($MIRROR_PUB)"
+else
+    NIX_MIRROR=""
+    log "NAR mirror not mounted; substituting from attic only"
+fi
+
 # Check if we have write permission to the cache.
 log "Checking write permissions for cache..."
 HAS_WRITE_PERMISSION=false
@@ -164,10 +221,11 @@ for PACKAGE in "$@"; do
     if echo "$DRY_RUN_OUTPUT" | grep -q "will be built"; then
         log "$PACKAGE needs to be built (not in cache)"
     elif echo "$DRY_RUN_OUTPUT" | grep -q "will be fetched"; then
-        log "$PACKAGE is already in attic, fetching..."
+        log "$PACKAGE is already substitutable, fetching..."
         PACKAGE_OUTPUT=$(nix build "$BUILD_TARGET" --no-link \
             --print-out-paths)
         log "$PACKAGE fetched from cache: $PACKAGE_OUTPUT"
+        mirror_closure $PACKAGE_OUTPUT
         continue
     else
         log "$PACKAGE is already in local store"
@@ -190,6 +248,7 @@ for PACKAGE in "$@"; do
         else
             log "WARNING: Failed to push $PACKAGE closure to attic"
         fi
+        mirror_closure $PACKAGE_OUTPUT
         continue
     fi
 
@@ -251,15 +310,29 @@ for PACKAGE in "$@"; do
                 > "$TMPDIR/build_output_$count" 2>/dev/null; then
                 OUTPUT=$(cat "$TMPDIR/build_output_$count")
 
-                # Push outputs and derivation to attic.
+                # Push the realized runtime closure, not just this
+                # drv's outputs. Substitution can fail at realize time
+                # after the check pass predicted a fetch; nix then
+                # builds those deps implicitly inside this build, and
+                # they appear only in this closure. Pushing only
+                # $OUTPUT leaves them as permanent cache holes. Attic
+                # uploads only what the cache is missing, so
+                # re-offering present paths costs a presence check,
+                # not a transfer.
                 if [ "$HAS_WRITE_PERMISSION" = true ]; then
-                    log "[$count/$missing_count] Success, pushing to" \
-                        "attic: $OUTPUT"
-                    push_to_attic $OUTPUT $drv
+                    log "[$count/$missing_count] Success, pushing" \
+                        "realized closure to attic: $OUTPUT"
+                    CLOSURE=$(nix path-info --recursive $OUTPUT \
+                        2>/dev/null || echo "$OUTPUT")
+                    push_to_attic $CLOSURE $drv
                     log "[$count/$missing_count] Pushed to attic"
                 else
                     log "[$count/$missing_count] Success: $OUTPUT"
                 fi
+
+                # Mirror per-drv, not only at the end, so a run that
+                # dies partway keeps its completed work disk-warm.
+                mirror_closure $OUTPUT
                 rm -f "$TMPDIR/build_output_$count"
             else
                 log "[$count/$missing_count] Failed: $drv"
@@ -275,19 +348,32 @@ for PACKAGE in "$@"; do
         --max-jobs auto --cores 0); then
         log "Built $PACKAGE: $OUTPUT"
 
-        # Push the final package outputs and derivation to attic.
+        # Push the final package's realized runtime closure and its
+        # derivation; same hole-closing rationale as the per-drv loop.
         if [ "$HAS_WRITE_PERMISSION" = true ]; then
-            if push_to_attic $OUTPUT $PACKAGE_DRV; then
+            CLOSURE=$(nix path-info --recursive $OUTPUT 2>/dev/null \
+                || echo "$OUTPUT")
+            if push_to_attic $CLOSURE $PACKAGE_DRV; then
                 log "Successfully pushed $PACKAGE to attic"
             else
                 log "WARNING: Failed to push $PACKAGE to attic"
             fi
         fi
+        mirror_closure $OUTPUT
     else
         log "ERROR: $PACKAGE build failed!"
         exit 1
     fi
 
 done
+
+if [ "$HAS_WRITE_PERMISSION" = true ]; then
+    log "Push summary: ${PUSH_OFFERED} paths offered," \
+        "${PUSH_FAILED} failed"
+    if [ "$PUSH_FAILED" -gt 0 ]; then
+        log "WARNING: ${PUSH_FAILED} paths failed to push; they remain" \
+            "cache holes until a future build re-offers them"
+    fi
+fi
 
 log "All packages processed successfully"
