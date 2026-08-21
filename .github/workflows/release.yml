@@ -117,19 +117,8 @@ jobs:
         echo "GPG_PASSPHRASE=$GPG_PASSPHRASE" >> $GITHUB_ENV
         echo "GPG_PUBLIC_KEY=$GPG_PUBLIC_KEY" >> $GITHUB_ENV
 
-        # Load public config from repository
-        . "$GITHUB_WORKSPACE/.env.maintainer"
-
-        # Export to environment for subsequent steps
+        # Load public config from repository.
         echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
-        echo "ATTIC_SERVER_URL=$ATTIC_SERVER_URL" >> $GITHUB_ENV
-        echo "ATTIC_CACHE=$ATTIC_CACHE" >> $GITHUB_ENV
-        echo "ATTIC_PUBLIC_KEY=$ATTIC_PUBLIC_KEY" >> $GITHUB_ENV
-        echo "VENDOR_BASE_URL=$VENDOR_BASE_URL" >> $GITHUB_ENV
-        echo "SP1_VERSION=$SP1_VERSION" >> $GITHUB_ENV
-        echo "RISC0_TOOLCHAIN_VERSION=$RISC0_TOOLCHAIN_VERSION" >> $GITHUB_ENV
-        echo "ATTIC_VERSION=$ATTIC_VERSION" >> $GITHUB_ENV
-        echo "NIX_VERSION=$NIX_VERSION" >> $GITHUB_ENV
 
         # Load registry configuration
         . /opt/github-runner/secrets/registry.env
@@ -174,24 +163,16 @@ jobs:
           echo "Using repository read-only attic token"
         fi
 
-        # Compute the attic_token hash for cache busting.
-        ATTIC_TOKEN_HASH=$(sha256sum ${ATTIC_TOKEN_SOURCE} | cut -d' ' -f1)
-
-        # Build the image.
-        docker build \
-          ${DOCKER_BUILD_ARGS} \
-          --build-arg ATTIC_SERVER_URL="${{ env.ATTIC_SERVER_URL }}" \
-          --build-arg ATTIC_CACHE="${{ env.ATTIC_CACHE }}" \
-          --build-arg ATTIC_PUBLIC_KEY="${{ env.ATTIC_PUBLIC_KEY }}" \
-          --build-arg VENDOR_BASE_URL="${{ env.VENDOR_BASE_URL }}" \
-          --build-arg SP1_VERSION="${{ env.SP1_VERSION }}" \
-          --build-arg RISC0_TOOLCHAIN_VERSION="${{ env.RISC0_TOOLCHAIN_VERSION }}" \
-          --build-arg ATTIC_VERSION="${{ env.ATTIC_VERSION }}" \
-          --build-arg NIX_VERSION="${{ env.NIX_VERSION }}" \
-          --build-arg ATTIC_CACHE_BUST="${ATTIC_TOKEN_HASH}" \
-          --secret id=attic_token,src=${ATTIC_TOKEN_SOURCE} \
-          -t ${{ env.IMAGE_NAME }}:${{ github.sha }} \
-          .
+        # Build through the Makefile: it includes .env.maintainer (every
+        # vendor version), guards each variable, computes the attic
+        # cache-bust hash, and mounts the token secret itself.
+        # DOCKER_BUILD_CACHE=0 is the pristine release flow: the layer
+        # cache is bypassed and the BuildKit cache mounts get a unique
+        # namespace, so every byte comes fresh from the CDN and attic.
+        make build \
+          IMAGE_TAG="${{ github.sha }}" \
+          ATTIC_TOKEN_FILE="${ATTIC_TOKEN_SOURCE}" \
+          DOCKER_BUILD_CACHE=0
         echo "build_success=true" >> $GITHUB_OUTPUT
 
     - name: Log into DigitalOcean Container Registry
