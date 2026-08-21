@@ -1,4 +1,4 @@
-/target
+target/
 **/*.rs.bk
 *.pdb
 .env
@@ -16,3 +16,5 @@ src/risc0/groth16/**/*.rs
 src/snarkjs/**/*.tar.gz
 src/circom/*/circom
 src/sp1/**/*.bin
+src/openvm/**/*.tar.gz
+src/openvm/kzg/**/*.srs

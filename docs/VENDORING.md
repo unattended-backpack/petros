@@ -5,7 +5,7 @@ Petros vendors four classes of external binary dependencies so that any historic
 - A committed sha256 checksum file under `src/<kind>/<version>/` in this repository.
 - The matching tarball or binary at `${VENDOR_BASE_URL}/<kind>/<version>/` on the CDN.
 
-Pointers to which version of each is active live in [`.env.maintainer`](../.env.maintainer) as the `SP1_VERSION`, `RISC0_TOOLCHAIN_VERSION`, `ATTIC_VERSION`, and `NIX_VERSION` variables. Bumping any one of them follows the same general procedure documented below, with kind-specific notes after.
+Pointers to which version of each is active live in [`.env.maintainer`](../.env.maintainer) as the `SP1_VERSION`, `RISC0_TOOLCHAIN_VERSION`, `OPENVM_VERSION`, `OPENVM_KZG_VERSION`, `ATTIC_VERSION`, and `NIX_VERSION` variables. Bumping any one of them follows the same general procedure documented below, with kind-specific notes after.
 
 ## General Procedure
 
@@ -45,6 +45,48 @@ Drives vendoring of one tarball:
 Obtain the tarball from the upstream RISC Zero toolchain release, upload to `${VENDOR_BASE_URL}/risc0/<RISC0_TOOLCHAIN_VERSION>/`, and commit the sha256 under `src/risc0/<RISC0_TOOLCHAIN_VERSION>/`.
 
 Bump this in lockstep with any downstream bump of `risc0-zkvm` that requires a new toolchain.
+
+### `OPENVM_VERSION`
+
+Drives vendoring of two tarballs:
+
+- `rust-toolchain-x86_64-unknown-linux-gnu.tar.gz` contains the stock upstream Rust nightly that openvm-build pins for guest builds, plus the `rust-src` component.
+- `cargo-openvm_<OPENVM_VERSION>_linux_amd64.tar.gz` contains the `cargo-openvm` provisioning CLI.
+
+Unlike SP1 and RISC Zero, neither ships as an upstream release artifact, so both are produced by the maintainer:
+
+**Toolchain**: the tarball must be the tree a real `rustup toolchain install` writes, including `lib/rustlib/multirust-channel-manifest.toml` and `lib/rustlib/components`, because openvm-build's preflight queries `rustup component list` for `rust-src (installed)` and rustup can only answer offline from those install manifests. Produce it with:
+
+```bash
+export RUSTUP_HOME=$(mktemp -d)
+rustup toolchain install <OPENVM_RUST_TOOLCHAIN> --profile minimal --component rust-src
+tar -C "$RUSTUP_HOME/toolchains/<OPENVM_RUST_TOOLCHAIN>-x86_64-unknown-linux-gnu" \
+  -czf rust-toolchain-x86_64-unknown-linux-gnu.tar.gz .
+rm -rf "$RUSTUP_HOME"
+```
+
+The channel name (`OPENVM_RUST_TOOLCHAIN` in `.env.maintainer`) comes from openvm-build's `DEFAULT_RUSTUP_TOOLCHAIN_NAME`; check it whenever bumping `OPENVM_VERSION` and keep the two in lockstep.
+
+**CLI**: OpenVM publishes no prebuilt binaries (upstream instructs `cargo install --git`). Build once from the pinned tag inside a container matching upstream's MSRV so the produced binary's glibc floor stays below every runtime petros supports:
+
+```bash
+docker run --rm -v "$PWD/out":/out rust:1.91-bookworm bash -c '
+  apt-get update -qq && apt-get install -y -qq cmake golang-go
+  export CARGO_HOME=/tmp/cargo
+  cargo install --git https://github.com/openvm-org/openvm.git \
+    --tag <OPENVM_VERSION> cargo-openvm --locked --root /out'
+tar -C out/bin -czf cargo-openvm_<OPENVM_VERSION>_linux_amd64.tar.gz cargo-openvm
+```
+
+Upload both to `${VENDOR_BASE_URL}/openvm/<OPENVM_VERSION>/`, and commit both `.sha256` files under `src/openvm/<OPENVM_VERSION>/`. Bump in lockstep with any downstream bump of the `openvm-sdk` git tag.
+
+### `OPENVM_KZG_VERSION`
+
+Drives vendoring of the fifteen KZG params files `kzg_bn254_10.srs` through `kzg_bn254_24.srs`: the PSE-halo2-format SRS set that openvm's EVM (halo2-wrapped) prover consumes from `~/.openvm/params/` and that `cargo openvm setup` would otherwise download from openvm's upstream S3.
+
+The version string names the Perpetual Powers of Tau contribution the set derives from (`challenge_0085` for OpenVM v2). Obtain the files from openvm's upstream source (`s3://axiom-crypto/<OPENVM_KZG_VERSION>/kzg_bn254_<k>.srs`), or re-derive them from the ceremony transcript itself; see [`OPENVM_TRUSTED_SETUP.md`](./OPENVM_TRUSTED_SETUP.md) for the verification and re-derivation procedure. Upload to `${VENDOR_BASE_URL}/openvm/kzg/<OPENVM_KZG_VERSION>/` and commit one `.sha256` per file under `src/openvm/kzg/<OPENVM_KZG_VERSION>/`.
+
+Only bump when OpenVM re-points its params source at a different ceremony contribution; re-run the trusted-setup verification whenever it changes.
 
 ### `ATTIC_VERSION`
 
