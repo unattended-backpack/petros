@@ -117,7 +117,9 @@ jobs:
         echo "GPG_PASSPHRASE=$GPG_PASSPHRASE" >> $GITHUB_ENV
         echo "GPG_PUBLIC_KEY=$GPG_PUBLIC_KEY" >> $GITHUB_ENV
 
-        # Load public config from repository.
+        # Load public config from repository. Only IMAGE_NAME is needed
+        # by later steps; the build reads .env.maintainer through make.
+        . "$GITHUB_WORKSPACE/.env.maintainer"
         echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
 
         # Load registry configuration
