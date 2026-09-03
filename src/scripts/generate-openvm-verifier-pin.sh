@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # generate-openvm-verifier-pin.sh - Emit the OpenVM EVM verifier contracts
 # from the pinned production halo2.pk and print/write the content pin that
-# populates src/openvm/<OPENVM_VERSION>/verifier.expected-hashes.
+# populates src/openvm/halo2/<OPENVM_HALO2_VERSION>/verifier.expected-hashes.
 #
 # What this produces (in the output dir)
 #   verifier.expected-hashes        sha256 lines over the four artifacts in
@@ -46,18 +46,29 @@ if ! solc --version >/dev/null 2>&1; then
   exit 1
 fi
 : "${VENDOR_BASE_URL:?must be set (halo2.pk seed source)}"
-: "${OPENVM_VERSION:?must be set (halo2.pk seed path component)}"
+: "${OPENVM_VERSION:?must be set (SDK base dir path component)}"
+: "${OPENVM_HALO2_VERSION:?must be set (halo2.pk seed path component)}"
 
 OPENVM_MM=$(echo "${OPENVM_VERSION#v}" | cut -d. -f1-2)
 VERSION_DIR="v${OPENVM_MM}-base"
 
 # Seed the KZG params from the copies petros bakes, and halo2.pk from the
 # vendor CDN, exactly as generate-openvm-agg-keys.sh does.
-echo "[verifier-pin] Seeding KZG params from /petros/share/openvm-kzg ..."
-mkdir -p "$HOME/.openvm/params"
-cp /petros/share/openvm-kzg/*.srs "$HOME/.openvm/params/"
+echo "[verifier-pin] Seeding KZG params (checksum-gated fetch into the cache) ..."
+: "${OPENVM_KZG_VERSION:?must be set (SRS path component)}"
+mkdir -p "$HOME/.openvm/params" /ceremony-cache/openvm-kzg
+for k in 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24; do
+  f="kzg_bn254_${k}.srs"
+  if ! (cd /ceremony-cache/openvm-kzg \
+      && sha256sum -c "/pins-kzg/${f}.sha256" >/dev/null 2>&1); then
+    curl -fsSL "${VENDOR_BASE_URL}/openvm/kzg/${OPENVM_KZG_VERSION}/${f}" \
+      -o "/ceremony-cache/openvm-kzg/${f}"
+    (cd /ceremony-cache/openvm-kzg && sha256sum -c "/pins-kzg/${f}.sha256")
+  fi
+  cp "/ceremony-cache/openvm-kzg/${f}" "$HOME/.openvm/params/"
+done
 echo "[verifier-pin] Seeding halo2.pk from the vendor CDN ..."
-curl -fsSL "${VENDOR_BASE_URL}/openvm/${OPENVM_VERSION}/openvm-halo2-pk.tar.gz" \
+curl -fsSL "${VENDOR_BASE_URL}/openvm/halo2/${OPENVM_HALO2_VERSION}/openvm-halo2-pk.tar.gz" \
   | tar -xzf - -C "$HOME/.openvm"
 
 # The seeded key must match the committed content pin before anything is

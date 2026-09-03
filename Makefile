@@ -92,6 +92,18 @@ build:
 		echo "ERROR: OPENVM_RUST_TOOLCHAIN not set (check .env.maintainer)" >&2; \
 		exit 1; \
 	fi
+	@if [ -z "$(OPENVM_HALO2_VERSION)" ]; then \
+		echo "ERROR: OPENVM_HALO2_VERSION not set (check .env.maintainer)" >&2; \
+		exit 1; \
+	fi
+	@if [ -z "$(SP1_RUST_TOOLCHAIN)" ]; then \
+		echo "ERROR: SP1_RUST_TOOLCHAIN not set (check .env.maintainer)" >&2; \
+		exit 1; \
+	fi
+	@if [ -z "$(SP1_CIRCUIT_VERSION)" ]; then \
+		echo "ERROR: SP1_CIRCUIT_VERSION not set (check .env.maintainer)" >&2; \
+		exit 1; \
+	fi
 	@if [ -z "$(SOLC_VERSION)" ]; then \
 		echo "ERROR: SOLC_VERSION not set (check .env.maintainer)" >&2; \
 		exit 1; \
@@ -148,6 +160,9 @@ build:
 		--build-arg RISC0_CPP_TOOLCHAIN_VERSION=$(RISC0_CPP_TOOLCHAIN_VERSION) \
 		--build-arg OPENVM_VERSION=$(OPENVM_VERSION) \
 		--build-arg OPENVM_RUST_TOOLCHAIN=$(OPENVM_RUST_TOOLCHAIN) \
+		--build-arg OPENVM_HALO2_VERSION=$(OPENVM_HALO2_VERSION) \
+		--build-arg SP1_RUST_TOOLCHAIN=$(SP1_RUST_TOOLCHAIN) \
+		--build-arg SP1_CIRCUIT_VERSION=$(SP1_CIRCUIT_VERSION) \
 		--build-arg OPENVM_KZG_VERSION=$(OPENVM_KZG_VERSION) \
 		--build-arg SOLC_VERSION=$(SOLC_VERSION) \
 		--build-arg ATTIC_VERSION=$(ATTIC_VERSION) \
@@ -186,11 +201,15 @@ openvm-agg-keys:
 		echo "ERROR: $(IMAGE_NAME):$(IMAGE_TAG) image not found; run 'make build' first" >&2; \
 		exit 1; \
 	fi
-	@mkdir -p out && chmod 777 out
+	@mkdir -p out out/ceremony-cache && chmod 777 out out/ceremony-cache
 	@echo "Generating OpenVM aggregation keys in $(IMAGE_NAME):$(IMAGE_TAG) (slow, RAM-heavy) ..."
 	docker run --rm \
 		-e VENDOR_BASE_URL=$(VENDOR_BASE_URL) \
 		-e OPENVM_VERSION=$(OPENVM_VERSION) \
+		-e OPENVM_HALO2_VERSION=$(OPENVM_HALO2_VERSION) \
+		-e OPENVM_KZG_VERSION=$(OPENVM_KZG_VERSION) \
+		-v $(CURDIR)/src/openvm/kzg/$(OPENVM_KZG_VERSION):/pins-kzg:ro \
+		-v $(CURDIR)/out/ceremony-cache:/ceremony-cache \
 		-v $(CURDIR)/src/scripts:/provision:ro \
 		-v $(CURDIR)/out:/out \
 		$(IMAGE_NAME):$(IMAGE_TAG) \
@@ -200,18 +219,18 @@ openvm-agg-keys:
 	@# toolchain or upstream-source drift and MUST be investigated before the
 	@# artifact is uploaded or trusted; a missing file means this is the first
 	@# generation for the version - record the printed hashes.
-	@if [ -f "src/openvm/$(OPENVM_VERSION)/agg-keys.expected-hashes" ]; then \
+	@if [ -f "src/openvm/halo2/$(OPENVM_HALO2_VERSION)/agg-keys.expected-hashes" ]; then \
 		TMP=$$(mktemp -d); \
 		tar -xzf out/openvm-agg-keys.tar.gz -C "$$TMP"; \
-		if (cd "$$TMP" && sha256sum -c "$(CURDIR)/src/openvm/$(OPENVM_VERSION)/agg-keys.expected-hashes"); then \
+		if (cd "$$TMP" && sha256sum -c "$(CURDIR)/src/openvm/halo2/$(OPENVM_HALO2_VERSION)/agg-keys.expected-hashes"); then \
 			echo "Reproducibility check PASSED against committed expected hashes."; \
 		else \
-			echo "ERROR: generated keys do not match src/openvm/$(OPENVM_VERSION)/agg-keys.expected-hashes" >&2; \
+			echo "ERROR: generated keys do not match src/openvm/halo2/$(OPENVM_HALO2_VERSION)/agg-keys.expected-hashes" >&2; \
 			rm -rf "$$TMP"; exit 1; \
 		fi; \
 		rm -rf "$$TMP"; \
 	else \
-		echo "NOTE: no expected-hashes file for $(OPENVM_VERSION); commit the hashes above to src/openvm/$(OPENVM_VERSION)/agg-keys.expected-hashes"; \
+		echo "NOTE: no expected-hashes file for $(OPENVM_VERSION); commit the hashes above to src/openvm/halo2/$(OPENVM_HALO2_VERSION)/agg-keys.expected-hashes"; \
 	fi
 	@echo "Done; artifacts in ./out/. Upload the tarball and commit the .sha256 downstream."
 
@@ -220,30 +239,34 @@ openvm-agg-keys:
 # the verifier.expected-hashes pin to ./out/. Same drift discipline as
 # the agg keys: if a committed pin exists it is checked and a mismatch
 # hard-fails; if not, commit the printed lines to
-# src/openvm/<OPENVM_VERSION>/verifier.expected-hashes and rebuild.
+# src/openvm/halo2/<OPENVM_HALO2_VERSION>/verifier.expected-hashes and rebuild.
 .PHONY: openvm-verifier-pin
 openvm-verifier-pin:
 	@if ! docker image inspect $(IMAGE_NAME):$(IMAGE_TAG) >/dev/null 2>&1; then \
 		echo "ERROR: $(IMAGE_NAME):$(IMAGE_TAG) image not found; run 'make build' first" >&2; \
 		exit 1; \
 	fi
-	@mkdir -p out && chmod 777 out
+	@mkdir -p out out/ceremony-cache && chmod 777 out out/ceremony-cache
 	@echo "Emitting OpenVM verifier from the pinned halo2.pk in $(IMAGE_NAME):$(IMAGE_TAG) ..."
 	docker run --rm \
 		-e VENDOR_BASE_URL=$(VENDOR_BASE_URL) \
 		-e OPENVM_VERSION=$(OPENVM_VERSION) \
+		-e OPENVM_HALO2_VERSION=$(OPENVM_HALO2_VERSION) \
+		-e OPENVM_KZG_VERSION=$(OPENVM_KZG_VERSION) \
 		-e HALO2_PK_SHA256=/pins/halo2.pk.sha256 \
+		-v $(CURDIR)/src/openvm/kzg/$(OPENVM_KZG_VERSION):/pins-kzg:ro \
+		-v $(CURDIR)/out/ceremony-cache:/ceremony-cache \
 		-v $(CURDIR)/src/scripts:/provision:ro \
 		-v $(CURDIR)/src/verifier-pin-tool:/tool:ro \
-		-v $(CURDIR)/src/openvm/$(OPENVM_VERSION):/pins:ro \
+		-v $(CURDIR)/src/openvm/halo2/$(OPENVM_HALO2_VERSION):/pins:ro \
 		-v $(CURDIR)/out:/out \
 		$(IMAGE_NAME):$(IMAGE_TAG) \
 		sh /provision/generate-openvm-verifier-pin.sh /out /tool
 	@# A populated pin has 64-hex-prefixed lines; the comment-only scaffold
 	@# does not. POSIX sh only in recipes: no process substitution.
-	@if grep -Eq '^[0-9a-f]{64}  ' "src/openvm/$(OPENVM_VERSION)/verifier.expected-hashes" 2>/dev/null; then \
+	@if grep -Eq '^[0-9a-f]{64}  ' "src/openvm/halo2/$(OPENVM_HALO2_VERSION)/verifier.expected-hashes" 2>/dev/null; then \
 		TMP1=$$(mktemp); TMP2=$$(mktemp); \
-		grep -E '^[0-9a-f]{64}  ' "src/openvm/$(OPENVM_VERSION)/verifier.expected-hashes" > "$$TMP1"; \
+		grep -E '^[0-9a-f]{64}  ' "src/openvm/halo2/$(OPENVM_HALO2_VERSION)/verifier.expected-hashes" > "$$TMP1"; \
 		grep -E '^[0-9a-f]{64}  ' out/verifier.expected-hashes > "$$TMP2"; \
 		if diff "$$TMP1" "$$TMP2"; then \
 			echo "Reproducibility check PASSED against committed verifier pin."; \

@@ -49,6 +49,7 @@ Makefile
 # Build artifacts and caches
 out/
 target/
+**/target/
 *.tar.gz.tmp
 .home/
 

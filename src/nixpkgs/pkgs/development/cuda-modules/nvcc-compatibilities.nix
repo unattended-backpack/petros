@@ -129,9 +129,12 @@ let
     # CUDA 12.9.1: adds Blackwell consumer (sm_120) support; raises host
     # compiler ceilings to Clang 19 and GCC 14.
     # https://docs.nvidia.com/cuda/archive/12.9.1/cuda-installation-guide-linux/index.html#host-compiler-support-policy
+    # Petros: gcc capped at 13 (within NVIDIA's documented ceiling of 14
+    # for 12.9) so nvcc shares the clang-wrapper's gcc-13 and the image
+    # ships a single gcc.
     "12.9" = attrs."12.4" // {
       clangMaxMajorVersion = "19";
-      gccMaxMajorVersion = "14";
+      gccMaxMajorVersion = "13";
     };
   };
 in

@@ -6,6 +6,7 @@ target/
 .secrets
 .act-secrets/
 .attic_admin_token
+out/
 
 # Vendored verification assets: only the .sha256 is committed; the bytes are
 # uploaded to the CDN, mirroring the attic/sp1/risc0 vendored kinds.

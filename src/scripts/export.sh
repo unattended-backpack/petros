@@ -32,7 +32,7 @@ log() {
 # Chunk classes in claim-priority order; class <name> is the closure of
 # flake attr path:/build#chunk-<name>. Keep in sync with the runtime
 # stage's COPY/RUN pairs in the Dockerfile (stability-ordered there).
-CLASSES="ceremony cuda compilers zkvm"
+CLASSES="cuda compilers zkvm"
 
 # Ensure at least one package was specified.
 if [ $# -eq 0 ]; then

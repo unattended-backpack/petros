@@ -147,11 +147,19 @@ if want sp1; then
   fi
   download_and_verify "cargo_prove_${SP1_VERSION}_linux_amd64.tar.gz" \
     "/tmp/sp1" "sp1/${SP1_VERSION}/"
+  if [ -z "${SP1_RUST_TOOLCHAIN:-}" ]; then
+    log "ERROR: SP1_RUST_TOOLCHAIN is required for vendoring the SP1 toolchain"
+    exit 1
+  fi
   download_and_verify "rust-toolchain-x86_64-unknown-linux-gnu.tar.gz" \
-    "/tmp/sp1" "sp1/${SP1_VERSION}/"
+    "/tmp/sp1" "sp1/toolchain/${SP1_RUST_TOOLCHAIN}/"
   # SP1 PLONK verification key (from the sp1-verifier crate); sha256(plonk_vk.bin)
   # is the on-chain SP1VerifierPlonk VERIFIER_HASH the verification confirms.
-  download_and_verify "plonk_vk.bin" "/tmp/sp1" "sp1/${SP1_VERSION}/"
+  if [ -z "${SP1_CIRCUIT_VERSION:-}" ]; then
+    log "ERROR: SP1_CIRCUIT_VERSION is required for vendoring the SP1 PLONK vk"
+    exit 1
+  fi
+  download_and_verify "plonk_vk.bin" "/tmp/sp1" "sp1/${SP1_CIRCUIT_VERSION}/"
 fi
 
 if want risc0; then
@@ -218,8 +226,12 @@ if want openvm; then
     log "ERROR: OPENVM_VERSION is required for vendoring OpenVM assets"
     exit 1
   fi
+  if [ -z "${OPENVM_RUST_TOOLCHAIN:-}" ]; then
+    log "ERROR: OPENVM_RUST_TOOLCHAIN is required for vendoring the OpenVM toolchain"
+    exit 1
+  fi
   download_and_verify "rust-toolchain-x86_64-unknown-linux-gnu.tar.gz" \
-    "/tmp/openvm" "openvm/${OPENVM_VERSION}/"
+    "/tmp/openvm" "openvm/toolchain/${OPENVM_RUST_TOOLCHAIN}/"
   download_and_verify "cargo-openvm_${OPENVM_VERSION}_linux_amd64.tar.gz" \
     "/tmp/openvm" "openvm/${OPENVM_VERSION}/"
 fi
