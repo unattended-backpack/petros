@@ -43,6 +43,12 @@ ARG RISC0_CPP_TOOLCHAIN_VERSION
 # ${VENDOR_BASE_URL}/openvm/${OPENVM_VERSION}/... with their sha256s
 # committed at src/openvm/${OPENVM_VERSION}/.
 ARG OPENVM_VERSION
+# Derived-artifact axes: the halo2 keys track the OpenVM minor line;
+# the toolchains and the SP1 circuit artifacts track their own upstream
+# versions. See docs/VENDORING.md.
+ARG OPENVM_HALO2_VERSION
+ARG SP1_RUST_TOOLCHAIN
+ARG SP1_CIRCUIT_VERSION
 
 # The rustup channel name of the stock nightly OpenVM pins for guest builds
 # (openvm-build's DEFAULT_RUSTUP_TOOLCHAIN_NAME). Names the toolchain
@@ -165,12 +171,12 @@ COPY src/snarkjs/${SNARKJS_VERSION}/ /tmp/snarkjs/
 RUN --mount=type=cache,id=petros-vendor-${BUILD_CACHE_ID},target=/vendor-cache \
   VENDOR_CACHE_DIR=/vendor-cache /build/src/scripts/vendor.sh snarkjs
 COPY src/risc0/groth16/${R0_GROTH16_VERSION}/ /tmp/risc0-groth16/
-RUN --mount=type=cache,id=petros-vendor-${BUILD_CACHE_ID},target=/vendor-cache \
-  VENDOR_CACHE_DIR=/vendor-cache /build/src/scripts/vendor.sh risc0-groth16
 COPY src/sp1/ignition/ /tmp/ignition/
 RUN --mount=type=cache,id=petros-vendor-${BUILD_CACHE_ID},target=/vendor-cache \
   VENDOR_CACHE_DIR=/vendor-cache /build/src/scripts/vendor.sh ignition
 COPY src/sp1/${SP1_VERSION}/ /tmp/sp1/
+COPY src/sp1/toolchain/${SP1_RUST_TOOLCHAIN}/ /tmp/sp1/
+COPY src/sp1/${SP1_CIRCUIT_VERSION}/plonk_vk.bin.sha256 /tmp/sp1/
 RUN --mount=type=cache,id=petros-vendor-${BUILD_CACHE_ID},target=/vendor-cache \
   VENDOR_CACHE_DIR=/vendor-cache /build/src/scripts/vendor.sh sp1
 COPY src/risc0/${RISC0_TOOLCHAIN_VERSION}/ /tmp/risc0/
@@ -180,11 +186,11 @@ COPY src/risc0/cpp/${RISC0_CPP_TOOLCHAIN_VERSION}/ /tmp/risc0-cpp/
 RUN --mount=type=cache,id=petros-vendor-${BUILD_CACHE_ID},target=/vendor-cache \
   VENDOR_CACHE_DIR=/vendor-cache /build/src/scripts/vendor.sh risc0-cpp
 COPY src/openvm/${OPENVM_VERSION}/ /tmp/openvm/
+COPY src/openvm/toolchain/${OPENVM_RUST_TOOLCHAIN}/ /tmp/openvm/
+COPY src/openvm/halo2/${OPENVM_HALO2_VERSION}/ /tmp/openvm-halo2/
 RUN --mount=type=cache,id=petros-vendor-${BUILD_CACHE_ID},target=/vendor-cache \
   VENDOR_CACHE_DIR=/vendor-cache /build/src/scripts/vendor.sh openvm
 COPY src/openvm/kzg/${OPENVM_KZG_VERSION}/ /tmp/openvm-kzg/
-RUN --mount=type=cache,id=petros-vendor-${BUILD_CACHE_ID},target=/vendor-cache \
-  VENDOR_CACHE_DIR=/vendor-cache /build/src/scripts/vendor.sh openvm-kzg
 COPY src/solidity/${SOLC_VERSION}/ /tmp/solidity/
 RUN --mount=type=cache,id=petros-vendor-${BUILD_CACHE_ID},target=/vendor-cache \
   VENDOR_CACHE_DIR=/vendor-cache /build/src/scripts/vendor.sh solidity
@@ -277,8 +283,8 @@ RUN mkdir -p /build/src/openvm/openvm-tc && \
 # it; downstream checks fail closed) and the halo2.pk content pin the
 # trusted-setup reproduction compares its freshly generated key against.
 RUN mkdir -p /build/src/openvm/verifier-pin && \
-  cp /tmp/openvm/verifier.expected-hashes /build/src/openvm/verifier-pin/ && \
-  cp /tmp/openvm/halo2.pk.sha256 /build/src/openvm/verifier-pin/
+  cp /tmp/openvm-halo2/verifier.expected-hashes /build/src/openvm/verifier-pin/ && \
+  cp /tmp/openvm-halo2/halo2.pk.sha256 /build/src/openvm/verifier-pin/
 
 # Extract the vendored cargo-openvm CLI to the path flake.nix points at.
 RUN mkdir -p /build/src/openvm/openvm-cli && \
@@ -286,11 +292,14 @@ RUN mkdir -p /build/src/openvm/openvm-cli && \
     -C /build/src/openvm/openvm-cli/ && \
   rm -rf /tmp/openvm
 
-# Place the verified OpenVM KZG params (no extraction; kzg_bn254_{10..24}.srs)
-# at the openvm-kzg flake input path, dropping the .sha256 sidecars so only
-# the data remains.
-RUN mkdir -p /build/src/openvm/kzg && \
-  cp /tmp/openvm-kzg/*.srs /build/src/openvm/kzg/ && \
+# Stage the ceremony checksum pins at the ceremony-pins flake input
+# path. The large artifacts themselves are not baked; downstream
+# verification and the openvm keygen goals fetch them from the vendor
+# CDN at use time, gated on these pins.
+RUN mkdir -p /build/src/ceremony-pins/risc0-groth16 \
+             /build/src/ceremony-pins/openvm-kzg && \
+  cp /tmp/risc0-groth16/*.sha256 /build/src/ceremony-pins/risc0-groth16/ && \
+  cp /tmp/openvm-kzg/*.sha256 /build/src/ceremony-pins/openvm-kzg/ && \
   rm -rf /tmp/openvm-kzg
 
 # Place the verified solc static binary at the solc flake input path.
@@ -298,23 +307,26 @@ RUN mkdir -p /build/src/solidity/solc && \
   install -m755 /tmp/solidity/solc-static-linux /build/src/solidity/solc/solc && \
   rm -rf /tmp/solidity
 
+# Stage the vendored-version strings the flake derivations read
+# (flake.nix readVersion), so derivation names always track
+# .env.maintainer instead of hardcoded strings.
+RUN mkdir -p /build/src/versions && \
+  printf '%s' "${SP1_VERSION#v}" > /build/src/versions/sp1-cli && \
+  printf '%s' "${SP1_RUST_TOOLCHAIN}" > /build/src/versions/sp1-tc && \
+  printf 'r0-%s' "${RISC0_TOOLCHAIN_VERSION}" > /build/src/versions/risc0-tc && \
+  printf 'r0-cpp-%s' "${RISC0_CPP_TOOLCHAIN_VERSION}" > /build/src/versions/risc0-cpp-tc && \
+  printf '%s' "${OPENVM_RUST_TOOLCHAIN}" > /build/src/versions/openvm-tc && \
+  printf '%s' "${OPENVM_VERSION#v}" > /build/src/versions/openvm-cli && \
+  printf '%s' "${CIRCOM_VERSION#v}" > /build/src/versions/circom && \
+  printf '%s' "${SOLC_VERSION#v}" > /build/src/versions/solc
+
 # Extract the vendored snarkjs node_modules to the snarkjs flake input path.
 RUN mkdir -p /build/src/snarkjs && \
   tar -xzf /tmp/snarkjs/snarkjs-node-modules.tar.gz \
     -C /build/src/snarkjs/ && \
   rm -rf /tmp/snarkjs
 
-# Place the verified RISC Zero Groth16 ceremony artifacts (ptau/zkey/
-# circom-sources/control_id.rs/doc snapshot) at the risc0-groth16 flake
-# input path, extracting the attestation-gist archive to a browsable
-# gists/ tree, then dropping the .sha256 sidecars so only data remains.
-RUN mkdir -p /build/src/risc0-groth16 && \
-  cp /tmp/risc0-groth16/* /build/src/risc0-groth16/ && \
-  tar -xzf /build/src/risc0-groth16/attestation-gists.tar.gz \
-    -C /build/src/risc0-groth16/ && \
-  rm -f /build/src/risc0-groth16/attestation-gists.tar.gz \
-        /build/src/risc0-groth16/*.sha256 && \
-  rm -rf /tmp/risc0-groth16
+RUN rm -rf /tmp/risc0-groth16
 
 # Place the verified circom binary (autopatchelf'd by the flake) and the SP1
 # Ignition bundle + identity anchors at their flake input paths; the
@@ -393,29 +405,27 @@ LABEL org.opencontainers.image.base.name="docker.io/library/alpine:3.20"
 LABEL org.opencontainers.image.base.digest=\
 "sha256:765942a4039992336de8dd5db680586e1a206607dd06170ff0a37267a9e01958"
 
-# Import the exported store, one classed chunk per (COPY + RUN) layer
-# pair. BuildKit keys COPY --from layers on the content digest of the
-# copied files, and export.sh writes deterministic tars, so a chunk
-# whose bytes are unchanged is a cache hit even when the builder stage
-# reran, and only genuinely changed chunks re-ship and re-import.
+# Import the exported store, one classed chunk per bind-mounted RUN
+# layer. The tarballs are never COPY'd into the image (a COPY layer
+# would permanently double each chunk's size); BuildKit keys the RUN on
+# the mounted tar's content digest, and export.sh writes deterministic
+# tars, so a chunk whose bytes are unchanged is a cache hit even when
+# the builder stage reran, and only genuinely changed chunks re-import.
 # Stability order: the ceremony artifacts (~17 GB) and CUDA redists
 # almost never change; the zkVM toolchains bump most often; `base`
 # holds everything unclaimed (including any newly vendored asset until
 # export.sh gives it a class). Keep the pair list in sync with
 # export.sh's CLASSES.
-COPY --from=builder /export/ceremony.tar /tmp/chunk.tar
-RUN tar -C / -xf /tmp/chunk.tar && rm /tmp/chunk.tar
-COPY --from=builder /export/cuda.tar /tmp/chunk.tar
-RUN tar -C / -xf /tmp/chunk.tar && rm /tmp/chunk.tar
-COPY --from=builder /export/compilers.tar /tmp/chunk.tar
-RUN tar -C / -xf /tmp/chunk.tar && rm /tmp/chunk.tar
-COPY --from=builder /export/zkvm.tar /tmp/chunk.tar
-RUN tar -C / -xf /tmp/chunk.tar && rm /tmp/chunk.tar
-COPY --from=builder /export/base.tar /tmp/chunk.tar
-COPY --from=builder /export/store.outpath /tmp/store.outpath
-RUN tar -C / -xf /tmp/chunk.tar && rm /tmp/chunk.tar \
-  && ln -sf "$(tr -d ' ' < /tmp/store.outpath)" /petros \
-  && rm /tmp/store.outpath
+RUN --mount=type=bind,from=builder,source=/export/cuda.tar,target=/tmp/chunk.tar \
+  tar -C / -xf /tmp/chunk.tar
+RUN --mount=type=bind,from=builder,source=/export/compilers.tar,target=/tmp/chunk.tar \
+  tar -C / -xf /tmp/chunk.tar
+RUN --mount=type=bind,from=builder,source=/export/zkvm.tar,target=/tmp/chunk.tar \
+  tar -C / -xf /tmp/chunk.tar
+RUN --mount=type=bind,from=builder,source=/export/base.tar,target=/tmp/chunk.tar \
+  --mount=type=bind,from=builder,source=/export/store.outpath,target=/tmp/store.outpath \
+  tar -C / -xf /tmp/chunk.tar \
+  && ln -sf "$(tr -d ' ' < /tmp/store.outpath)" /petros
 
 # Link binaries into the Succinct toolchain.
 RUN set -eux; \

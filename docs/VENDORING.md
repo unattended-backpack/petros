@@ -5,7 +5,7 @@ Petros vendors four classes of external binary dependencies so that any historic
 - A committed sha256 checksum file under `src/<kind>/<version>/` in this repository.
 - The matching tarball or binary at `${VENDOR_BASE_URL}/<kind>/<version>/` on the CDN.
 
-Pointers to which version of each is active live in [`.env.maintainer`](../.env.maintainer) as the `SP1_VERSION`, `RISC0_TOOLCHAIN_VERSION`, `OPENVM_VERSION`, `OPENVM_KZG_VERSION`, `ATTIC_VERSION`, and `NIX_VERSION` variables. Bumping any one of them follows the same general procedure documented below, with kind-specific notes after.
+Pointers to which version of each is active live in [`.env.maintainer`](../.env.maintainer) as the `SP1_VERSION`, `SP1_RUST_TOOLCHAIN`, `SP1_CIRCUIT_VERSION`, `RISC0_TOOLCHAIN_VERSION`, `OPENVM_VERSION`, `OPENVM_RUST_TOOLCHAIN`, `OPENVM_HALO2_VERSION`, `OPENVM_KZG_VERSION`, `ATTIC_VERSION`, and `NIX_VERSION` variables. Each artifact is keyed by the version of the thing that actually determines its bytes, so a bump on one axis (for example an SDK patch release) never forces a re-upload of an unchanged artifact on another (the toolchain it dispatches to, or the circuit material it wraps). Bumping any one of them follows the same general procedure documented below, with kind-specific notes after.
 
 ## General Procedure
 
@@ -25,14 +25,27 @@ Old entries under `src/<kind>/<old-version>/` can be left in place. They are not
 
 ### `SP1_VERSION`
 
-Drives vendoring of two tarballs:
+Drives vendoring of one tarball:
 
 - `cargo_prove_<SP1_VERSION>_linux_amd64.tar.gz` contains the `cargo-prove` CLI.
+
+It ships as a Succinct SP1 GitHub release asset. Obtain it from the upstream release, compute the sha256, upload to `${VENDOR_BASE_URL}/sp1/<SP1_VERSION>/`, and commit the `.sha256` file under `src/sp1/<SP1_VERSION>/`. Bump in lockstep with any downstream bump of `sp1-sdk`.
+
+### `SP1_RUST_TOOLCHAIN`
+
+Drives vendoring of one tarball:
+
 - `rust-toolchain-x86_64-unknown-linux-gnu.tar.gz` contains the Succinct-custom Rust toolchain that `cargo-prove` dispatches to.
 
-Both ship as part of a matched Succinct SP1 release. Obtain them from the upstream release, compute sha256s, upload to `${VENDOR_BASE_URL}/sp1/<SP1_VERSION>/`, and commit both `.sha256` files under `src/sp1/<SP1_VERSION>/`.
+The tag comes from `LATEST_SUPPORTED_TOOLCHAIN_VERSION_TAG` in the sp1 CLI source at the pinned SP1 release (for example `succinct-1.94.0-64bit`); the tarball is the matching asset of the `succinctlabs/rust` GitHub release with that tag. Upload to `${VENDOR_BASE_URL}/sp1/toolchain/<SP1_RUST_TOOLCHAIN>/` and commit the `.sha256` under `src/sp1/toolchain/<SP1_RUST_TOOLCHAIN>/`. Check the tag on every `SP1_VERSION` bump; it only moves when Succinct ships a new toolchain.
 
-Bump this in lockstep with any downstream bump of `sp1-sdk` that requires a new Succinct Rust toolchain.
+### `SP1_CIRCUIT_VERSION`
+
+Drives vendoring of one file:
+
+- `plonk_vk.bin` is the PLONK verifying key of the SP1 circuit release; `sha256(plonk_vk.bin)` is the on-chain `SP1VerifierPlonk` `VERIFIER_HASH` and the proof selector prefix.
+
+The circuit version is `SP1_CIRCUIT_VERSION` in the `sp1-prover` crate at the pinned SDK release (`v6.1.0` for every 6.x SDK so far) and is independent of `SP1_VERSION`. The file lives beside the circuit tarballs at `${VENDOR_BASE_URL}/sp1/<SP1_CIRCUIT_VERSION>/plonk_vk.bin` with its pin under `src/sp1/<SP1_CIRCUIT_VERSION>/`. Bump only when Succinct ships new circuits; that also means a new vendored verifier contract downstream.
 
 ### `RISC0_TOOLCHAIN_VERSION`
 
@@ -46,14 +59,15 @@ Obtain the tarball from the upstream RISC Zero toolchain release, upload to `${V
 
 Bump this in lockstep with any downstream bump of `risc0-zkvm` that requires a new toolchain.
 
-### `OPENVM_VERSION`
+### `OPENVM_VERSION`, `OPENVM_RUST_TOOLCHAIN`, and `OPENVM_HALO2_VERSION`
 
-Drives vendoring of two tarballs:
+OpenVM material is keyed by three axes:
 
-- `rust-toolchain-x86_64-unknown-linux-gnu.tar.gz` contains the stock upstream Rust nightly that openvm-build pins for guest builds, plus the `rust-src` component.
-- `cargo-openvm_<OPENVM_VERSION>_linux_amd64.tar.gz` contains the `cargo-openvm` provisioning CLI.
+- `OPENVM_VERSION` drives `cargo-openvm_<OPENVM_VERSION>_linux_amd64.tar.gz`, the `cargo-openvm` provisioning CLI, at `${VENDOR_BASE_URL}/openvm/<OPENVM_VERSION>/` with its pin under `src/openvm/<OPENVM_VERSION>/`.
+- `OPENVM_RUST_TOOLCHAIN` drives `rust-toolchain-x86_64-unknown-linux-gnu.tar.gz`, the stock upstream Rust nightly that openvm-build pins for guest builds plus the `rust-src` component, at `${VENDOR_BASE_URL}/openvm/toolchain/<OPENVM_RUST_TOOLCHAIN>/` with its pin under `src/openvm/toolchain/<OPENVM_RUST_TOOLCHAIN>/`. SDK bumps that keep the same nightly reuse it untouched.
+- `OPENVM_HALO2_VERSION` is the OpenVM minor line (for example `v2.0`) that keys the derived halo2 material: `openvm-halo2-pk.tar.gz`, `openvm-agg-keys.tar.gz`, and the pins `halo2.pk.sha256`, `agg-keys.expected-hashes`, and `verifier.expected-hashes`, at `${VENDOR_BASE_URL}/openvm/halo2/<OPENVM_HALO2_VERSION>/` and `src/openvm/halo2/<OPENVM_HALO2_VERSION>/`. Upstream regenerates this material per minor release and holds it stable across patch releases; on every SDK bump `make openvm-agg-keys` and `make openvm-verifier-pin` re-verify that the pinned material still reproduces under the new SDK, and a failure means the line must be bumped and regenerated rather than reused.
 
-Unlike SP1 and RISC Zero, neither ships as an upstream release artifact, so both are produced by the maintainer:
+Unlike SP1 and RISC Zero, neither the CLI nor the toolchain ships as an upstream release artifact, so both are produced by the maintainer:
 
 **Toolchain**: the tarball must be the tree a real `rustup toolchain install` writes, including `lib/rustlib/multirust-channel-manifest.toml` and `lib/rustlib/components`, because openvm-build's preflight queries `rustup component list` for `rust-src (installed)` and rustup can only answer offline from those install manifests. Produce it with:
 
@@ -78,7 +92,7 @@ docker run --rm -v "$PWD/out":/out rust:1.91-bookworm bash -c '
 tar -C out/bin -czf cargo-openvm_<OPENVM_VERSION>_linux_amd64.tar.gz cargo-openvm
 ```
 
-Upload both to `${VENDOR_BASE_URL}/openvm/<OPENVM_VERSION>/`, and commit both `.sha256` files under `src/openvm/<OPENVM_VERSION>/`. Bump in lockstep with any downstream bump of the `openvm-sdk` git tag.
+Upload the CLI to `${VENDOR_BASE_URL}/openvm/<OPENVM_VERSION>/` and the toolchain to `${VENDOR_BASE_URL}/openvm/toolchain/<OPENVM_RUST_TOOLCHAIN>/`, and commit the `.sha256` files under the matching `src/openvm/` paths. Bump `OPENVM_VERSION` in lockstep with any downstream bump of the `openvm-sdk` git tag.
 
 ### `OPENVM_KZG_VERSION`
 

@@ -32,12 +32,10 @@
   inputs.circom.flake = false;
   inputs.snarkjs.url = "path:/build/src/snarkjs";
   inputs.snarkjs.flake = false;
-  inputs.risc0-groth16.url = "path:/build/src/risc0-groth16";
-  inputs.risc0-groth16.flake = false;
   inputs.ignition.url = "path:/build/src/ignition";
   inputs.ignition.flake = false;
-  inputs.openvm-kzg.url = "path:/build/src/openvm/kzg";
-  inputs.openvm-kzg.flake = false;
+  inputs.ceremony-pins.url = "path:/build/src/ceremony-pins";
+  inputs.ceremony-pins.flake = false;
   inputs.solc.url = "path:/build/src/solidity/solc";
   inputs.solc.flake = false;
   inputs.openvm-verifier-pin.url = "path:/build/src/openvm/verifier-pin";
@@ -74,10 +72,17 @@
         builtins.all (lic: (lic.shortName or "") == "CUDA EULA") licenses;
     };
 
+    # Vendored-version strings staged by the Dockerfile from
+    # .env.maintainer, so derivation names track the conventional
+    # vendoring process instead of hardcoded strings.
+    readVersion = name:
+      builtins.replaceStrings [ "\n" ] [ "" ]
+        (builtins.readFile (./src/versions + "/${name}"));
+
     # Install the SP1 CLI.
     sp1_cli = pkgs.stdenvNoCC.mkDerivation {
       pname = "sp1-cli";
-      version = "6.2.2";
+      version = readVersion "sp1-cli";
       src = inputs."sp1-cli";
       nativeBuildInputs = [ pkgs.autoPatchelfHook ];
       buildInputs = [
@@ -112,7 +117,7 @@
     # Install the SP1 custom Rust toolchain with RISC-V target support.
     sp1_tc = pkgs.stdenvNoCC.mkDerivation {
       pname = "sp1-tc";
-      version = "succinct-1.93.0";
+      version = readVersion "sp1-tc";
       src = inputs."sp1-tc";
       nativeBuildInputs = [ pkgs.autoPatchelfHook ];
       buildInputs = [
@@ -137,7 +142,7 @@
     # via a host crate's build.rs with `GuestOptions { use_docker: None, .. }`.
     risc0_tc = pkgs.stdenvNoCC.mkDerivation {
       pname = "risc0-tc";
-      version = "r0-1.94.1";
+      version = readVersion "risc0-tc";
       src = inputs."risc0-tc";
       nativeBuildInputs = [ pkgs.autoPatchelfHook ];
       buildInputs = [
@@ -166,7 +171,7 @@
     # loadable on the host.
     risc0_cpp_tc = pkgs.stdenvNoCC.mkDerivation {
       pname = "risc0-cpp-tc";
-      version = "r0-cpp-2024.01.05";
+      version = readVersion "risc0-cpp-tc";
       src = inputs."risc0-cpp-tc";
       nativeBuildInputs = [ pkgs.autoPatchelfHook ];
       buildInputs = [
@@ -218,7 +223,7 @@
     # $RUSTUP_HOME/toolchains/ with the official channel-triple name.
     openvm_tc = pkgs.stdenvNoCC.mkDerivation {
       pname = "openvm-tc";
-      version = "nightly-2026-01-18";
+      version = readVersion "openvm-tc";
       src = inputs."openvm-tc";
       nativeBuildInputs = [ pkgs.autoPatchelfHook ];
       buildInputs = [
@@ -255,7 +260,7 @@
     # crate's build.rs, mirroring the risc0-build arrangement.
     openvm_cli = pkgs.stdenvNoCC.mkDerivation {
       pname = "cargo-openvm";
-      version = "2.0.1";
+      version = readVersion "openvm-cli";
       src = inputs."openvm-cli";
       nativeBuildInputs = [ pkgs.autoPatchelfHook ];
       buildInputs = [
@@ -288,7 +293,7 @@
     # autoPatchelfHook fixes its interpreter + RPATH like the SP1/RISC Zero CLIs.
     circom = pkgs.stdenvNoCC.mkDerivation {
       pname = "circom";
-      version = "2.2.2";
+      version = readVersion "circom";
       src = inputs."circom";
       nativeBuildInputs = [ pkgs.autoPatchelfHook ];
       buildInputs = [ pkgs.glibc pkgs.stdenv.cc.cc ];
@@ -321,32 +326,16 @@
       chmod +x "$out/bin/snarkjs"
     '';
 
-    # RISC Zero Groth16 ceremony artifacts (ptau, zkey, circom sources,
-    # control_id.rs) that the verification reads. Data, not executables, so we
-    # park them under share/. Symlinks into the input store path so this
-    # derivation stays a few KB and the ~13 GB lives once in the input.
-    risc0_groth16_artifacts = pkgs.runCommand "risc0-groth16-artifacts" { } ''
+    # Checksum pins for the large ceremony artifacts (RISC Zero Groth16
+    # ptau/zkey/sources and the OpenVM KZG SRS set). The artifacts
+    # themselves are no longer baked into the image; downstream
+    # verification and the openvm keygen goals fetch them from the
+    # vendor CDN at use time, gated on these pins. A few KB keeps the
+    # single canonical petros image the sole trust anchor.
+    ceremony_pins = pkgs.runCommand "ceremony-pins" { } ''
       set -euo pipefail
-      mkdir -p "$out/share/risc0-groth16"
-      for f in ${inputs."risc0-groth16"}/*; do
-        ln -s "$f" "$out/share/risc0-groth16/$(basename "$f")"
-      done
-    '';
-
-    # OpenVM KZG params (kzg_bn254_{10..24}.srs), the PSE-halo2-format SRS set
-    # that openvm's EVM (halo2-wrapped) prover consumes from ~/.openvm/params/.
-    # Converted upstream from Perpetual Powers of Tau challenge_0085; the
-    # OpenVM trusted-setup verification checks internal consistency offline
-    # and documents the full ceremony re-derivation (see
-    # docs/OPENVM_TRUSTED_SETUP.md). Data, not executables, so they park
-    # under share/. Symlinks into the input store path keep this derivation
-    # tiny; the ~4.1 GB lives once in the input.
-    openvm_kzg_artifacts = pkgs.runCommand "openvm-kzg-artifacts" { } ''
-      set -euo pipefail
-      mkdir -p "$out/share/openvm-kzg"
-      for f in ${inputs."openvm-kzg"}/*; do
-        ln -s "$f" "$out/share/openvm-kzg/$(basename "$f")"
-      done
+      mkdir -p "$out/share/ceremony-pins"
+      cp -r ${inputs."ceremony-pins"}/* "$out/share/ceremony-pins/"
     '';
 
     # solc binary (v0.8.19, the exact release the openvm-generated
@@ -359,7 +348,7 @@
     # interpreter + RPATH like circom and the SP1/RISC Zero CLIs.
     solc_bin = pkgs.stdenvNoCC.mkDerivation {
       pname = "solc-bin";
-      version = "0.8.19";
+      version = readVersion "solc";
       src = inputs."solc";
       nativeBuildInputs = [ pkgs.autoPatchelfHook ];
       buildInputs = [ pkgs.glibc pkgs.stdenv.cc.cc ];
@@ -426,7 +415,8 @@
       done
     '';
 
-    # SP1 PLONK verification key (from sp1-verifier 6.2.2). sha256(plonk_vk.bin)
+    # SP1 PLONK verification key (from the sp1-verifier crate at the pinned
+    # circuit version). sha256(plonk_vk.bin)
     # is the on-chain SP1VerifierPlonk VERIFIER_HASH the verification recomputes.
     sp1_plonk_vk = pkgs.runCommand "sp1-plonk-vk" { } ''
       set -euo pipefail
@@ -528,15 +518,16 @@
           openvm_tc
           openvm_cli
 
-          # Trusted-setup verification: pinned circom + snarkjs tooling and the
-          # RISC Zero Groth16 ceremony artifacts, all consumed offline by
-          # `make verify-trusted-setup` downstream (no runtime downloads).
+          # Trusted-setup verification: pinned circom + snarkjs tooling
+          # plus the checksum pins for the large ceremony artifacts.
+          # Downstream `make verify-trusted-setup` fetches those
+          # artifacts from the vendor CDN at build time, gated on the
+          # baked pins (share/ceremony-pins), and caches them.
           circom
           snarkjs
-          risc0_groth16_artifacts
+          ceremony_pins
           ignition_bundle
           sp1_plonk_vk
-          openvm_kzg_artifacts
           solc_bin
           openvm_verifier_pin
           ppot_artifacts
@@ -580,17 +571,6 @@
       # content digest; see src/scripts/export.sh for the partition
       # rules and the stability ordering. extraOutputsToInstall mirrors
       # the main env so multi-output packages are claimed whole.
-      chunk-ceremony = pkgs.buildEnv {
-        name = "chunk-ceremony";
-        ignoreCollisions = true;
-        extraOutputsToInstall = [ "dev" "lib" "static" "stubs" ];
-        paths = [
-          risc0_groth16_artifacts
-          openvm_kzg_artifacts
-          ppot_artifacts
-          ethereum_kzg_artifacts
-        ];
-      };
       chunk-cuda = pkgs.buildEnv {
         name = "chunk-cuda";
         ignoreCollisions = true;

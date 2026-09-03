@@ -13,7 +13,7 @@
 #                                   universal
 #   openvm-agg-keys.tar.gz.sha256   committed downstream; the tarball itself
 #                                   is uploaded to the CDN at
-#                                   ${VENDOR_BASE_URL}/openvm/<OPENVM_VERSION>/
+#                                   ${VENDOR_BASE_URL}/openvm/halo2/<OPENVM_HALO2_VERSION>/
 #
 # These are outputs of `cargo openvm setup --evm`: deterministic keygen, no
 # trusted-setup ceremony involved. The --evm pass would normally also
@@ -49,16 +49,27 @@ if ! command -v cargo >/dev/null 2>&1; then
   exit 1
 fi
 : "${VENDOR_BASE_URL:?must be set (halo2.pk seed source)}"
-: "${OPENVM_VERSION:?must be set (halo2.pk seed path component)}"
+: "${OPENVM_VERSION:?must be set (SDK base dir path component)}"
+: "${OPENVM_HALO2_VERSION:?must be set (halo2.pk seed path component)}"
 
 # Seed the KZG params from the copies petros bakes, and halo2.pk from the
 # vendor CDN, so `setup --evm` skips both the params download and the
 # ~70-GB-RAM halo2 keygen and only runs the aggregation keygens.
-echo "[agg-keys] Seeding KZG params from /petros/share/openvm-kzg ..."
-mkdir -p "$HOME/.openvm/params"
-cp /petros/share/openvm-kzg/*.srs "$HOME/.openvm/params/"
+echo "[agg-keys] Seeding KZG params (checksum-gated fetch into the cache) ..."
+: "${OPENVM_KZG_VERSION:?must be set (SRS path component)}"
+mkdir -p "$HOME/.openvm/params" /ceremony-cache/openvm-kzg
+for k in 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24; do
+  f="kzg_bn254_${k}.srs"
+  if ! (cd /ceremony-cache/openvm-kzg \
+      && sha256sum -c "/pins-kzg/${f}.sha256" >/dev/null 2>&1); then
+    curl -fsSL "${VENDOR_BASE_URL}/openvm/kzg/${OPENVM_KZG_VERSION}/${f}" \
+      -o "/ceremony-cache/openvm-kzg/${f}"
+    (cd /ceremony-cache/openvm-kzg && sha256sum -c "/pins-kzg/${f}.sha256")
+  fi
+  cp "/ceremony-cache/openvm-kzg/${f}" "$HOME/.openvm/params/"
+done
 echo "[agg-keys] Seeding halo2.pk from the vendor CDN ..."
-curl -fsSL "${VENDOR_BASE_URL}/openvm/${OPENVM_VERSION}/openvm-halo2-pk.tar.gz" \
+curl -fsSL "${VENDOR_BASE_URL}/openvm/halo2/${OPENVM_HALO2_VERSION}/openvm-halo2-pk.tar.gz" \
   | tar -xzf - -C "$HOME/.openvm"
 
 # Seed placeholder verifier artifacts so setup SKIPS its final
@@ -100,5 +111,5 @@ tar -C "$HOME/.openvm" -czf "$OUT_DIR/openvm-agg-keys.tar.gz" \
 
 echo "[agg-keys] Done:"
 ls -la "$OUT_DIR/openvm-agg-keys.tar.gz" "$OUT_DIR/openvm-agg-keys.tar.gz.sha256"
-echo "[agg-keys] Upload the tarball to \${VENDOR_BASE_URL}/openvm/<OPENVM_VERSION>/"
+echo "[agg-keys] Upload the tarball to \${VENDOR_BASE_URL}/openvm/halo2/<OPENVM_HALO2_VERSION>/"
 echo "[agg-keys] and commit the .sha256 under hierophant's provers/openvm/<OPENVM_VERSION>/."
